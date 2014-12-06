@@ -19,10 +19,12 @@
 #include "device_network.h"
 
 #include "util_foreach.h"
+#include "util_logging.h"
 
 #if defined(WITH_NETWORK)
 
 CCL_NAMESPACE_BEGIN
+
 
 typedef map<device_ptr, device_ptr> PtrMap;
 typedef vector<uint8_t> DataVector;
@@ -30,6 +32,183 @@ typedef map<device_ptr, DataVector> DataMap;
 
 /* tile list */
 typedef vector<RenderTile> TileList;
+
+
+CyclesRPCCallBase *CyclesRPCCallFactory::decode_item(RPCHeader &header,
+		ByteVector& args_buffer,
+		ByteVector& blob_buffer)
+{
+	switch (header.id)
+	{
+	case CyclesRPCCallBase::mem_alloc_request:
+		return new RPCCall_mem_alloc(header, args_buffer, blob_buffer);
+
+	case CyclesRPCCallBase::stop_request:
+		return new RPCCall_stop(header, args_buffer, blob_buffer);
+
+	case CyclesRPCCallBase::mem_mem_copy_to_request:
+		return new RPCCall_mem_copy_to(header, args_buffer, blob_buffer);
+
+	case CyclesRPCCallBase::mem_copy_from_request:
+		return new RPCCall_mem_copy_from(header, args_buffer, blob_buffer);
+
+	case CyclesRPCCallBase::mem_zero_request:
+		return new RPCCall_mem_zero(header, args_buffer, blob_buffer);
+
+	case CyclesRPCCallBase::mem_free_request:
+		return new RPCCall_mem_free(header, args_buffer, blob_buffer);
+
+	case CyclesRPCCallBase::const_copy_to_request:
+		return new RPCCall_const_copy_to(header, args_buffer, blob_buffer);
+
+	case CyclesRPCCallBase::tex_alloc_request:
+		return new RPCCall_tex_alloc(header, args_buffer, blob_buffer);
+
+	case CyclesRPCCallBase::tex_free_request:
+		return new RPCCall_tex_free(header, args_buffer, blob_buffer);
+
+	case CyclesRPCCallBase::load_kernels_request:
+		return new RPCCall_load_kernels(header, args_buffer, blob_buffer);
+
+	case CyclesRPCCallBase::task_add_request:
+		return new RPCCall_task_add(header, args_buffer, blob_buffer);
+
+	case CyclesRPCCallBase::task_wait_request:
+		return new RPCCall_task_wait(header, args_buffer, blob_buffer);
+
+	case CyclesRPCCallBase::task_cancel_request:
+		return new RPCCall_task_cancel(header, args_buffer, blob_buffer);
+
+	case CyclesRPCCallBase::acquire_tile_request:
+		return new RPCCall_acquire_tile(header, args_buffer, blob_buffer);
+
+	case CyclesRPCCallBase::release_tile_request:
+		return new RPCCall_release_tile(header, args_buffer, blob_buffer);
+
+	case CyclesRPCCallBase::task_wait_done_request:
+		return new RPCCall_task_wait_done(header, args_buffer, blob_buffer);
+
+	/* responses */
+	case CyclesRPCCallBase::mem_alloc_response:
+		return new RPCCall_mem_alloc_response(header, args_buffer, blob_buffer);
+
+	case CyclesRPCCallBase::acquire_tile_response:
+		return new RPCCall_acquire_tile_response(header, args_buffer, blob_buffer);
+
+	case CyclesRPCCallBase::release_tile_response:
+		return new RPCCall_release_tile_response(header, args_buffer, blob_buffer);
+
+	default:
+		assert(!"Should not happen!");
+		return NULL;
+	}
+}
+
+void CyclesRPCCallFactory::rpc_mem_alloc(RPCStreamManager& stream,
+		device_memory& mem, MemoryType type)
+{
+	RPCCall_mem_alloc call(mem, type);
+	stream.send_call(call);
+}
+
+void CyclesRPCCallFactory::rpc_stop(RPCStreamManager& stream)
+{
+	RPCCall_stop call;
+	stream.send_call(call);
+}
+
+void CyclesRPCCallFactory::rpc_mem_copy_to(RPCStreamManager& stream, device_memory& mem)
+{
+	RPCCall_mem_copy_to call(mem);
+}
+
+void CyclesRPCCallFactory::rpc_mem_copy_from(RPCStreamManager& stream,
+		device_memory& mem, int y, int w, int h, int elem, void *output)
+{
+	RPCCall_mem_copy_from call(mem, y, w, h, elem, output);
+	/* FIXME: need to get a call id to wait for here */
+	stream.send_call(call);
+	stream.wait_for();
+}
+
+void CyclesRPCCallFactory::rpc_mem_zero(RPCStreamManager& stream,
+		device_memory& mem)
+{
+	RPCCall_mem_zero call(mem);
+	stream.send_call(call);
+}
+
+void CyclesRPCCallFactory::rpc_mem_free(RPCStreamManager& stream,
+		device_memory& mem)
+{
+	RPCCall_mem_free call(mem);
+	stream.send_call(call);
+}
+
+void CyclesRPCCallFactory::rpc_const_copy_to(RPCStreamManager& stream,
+		const std::string& name, void *data, size_t size)
+{
+	RPCCall_const_copy_to call(name, data, size);
+	stream.send_call(call);
+}
+
+void CyclesRPCCallFactory::rpc_tex_alloc(RPCStreamManager& stream,
+		const std::string& name, device_memory& mem,
+		bool interpolation, bool periodic)
+{
+	RPCCall_tex_alloc call(name, mem, interpolation, periodic);
+	stream.send_call(call);
+}
+
+void CyclesRPCCallFactory::rpc_tex_free(RPCStreamManager& stream,
+		device_memory& mem)
+{
+	RPCCall_tex_free call(mem);
+	stream.send_call(call);
+}
+
+bool CyclesRPCCallFactory::rpc_load_kernels(RPCStreamManager& stream,
+		bool experimental)
+{
+	RPCCall_load_kernels call(experimental);
+
+	stream.send_call(call);
+
+	bool res = call.get_result();
+
+	return res;
+}
+
+void CyclesRPCCallFactory::rpc_task_add(RPCStreamManager& stream,
+		DeviceTask& task)
+{
+	RPCCall_task_add call(task);
+	stream.send_call(call);
+}
+
+void CyclesRPCCallFactory::rpc_task_wait(RPCStreamManager& stream)
+{
+	RPCCall_task_wait call;
+	stream.send_call(call);
+}
+
+void CyclesRPCCallFactory::rpc_task_cancel(RPCStreamManager& stream)
+{
+	RPCCall_task_cancel call;
+	stream.send_call(call);
+}
+
+void CyclesRPCCallFactory::rpc_acquire_tile_response(RPCStreamManager &stream,
+													 CyclesRPCCallBase *request,
+													 bool retval, RenderTile &tile)
+{
+
+}
+
+void CyclesRPCCallFactory::rpc_release_tile(RPCStreamManager &stream, RenderTile &tile)
+{
+
+}
 
 /* search a list of tiles and find the one that matches the passed render tile */
 static TileList::iterator tile_list_find(TileList& tile_list, RenderTile& tile)
@@ -48,227 +227,123 @@ public:
 	device_ptr mem_counter;
 	DeviceTask the_task; /* todo: handle multiple tasks */
 
-	thread_mutex rpc_lock;
+	boost::thread *io_service_thread;
+	RPCStreamManager rpc_stream;
 
 	NetworkDevice(DeviceInfo& info, Stats &stats, const char *address)
-	: Device(info, stats, true), socket(io_service)
+		: Device(info, stats, true)
+		, socket(io_service)
+		, rpc_stream(socket)
 	{
-		error_func = NetworkError();
-		stringstream portstr;
-		portstr << SERVER_PORT;
-
-		tcp::resolver resolver(io_service);
-		tcp::resolver::query query(address, portstr.str());
-		tcp::resolver::iterator endpoint_iterator = resolver.resolve(query);
-		tcp::resolver::iterator end;
-
-		boost::system::error_code error = boost::asio::error::host_not_found;
-		while(error && endpoint_iterator != end)
-		{
-			socket.close();
-			socket.connect(*endpoint_iterator++, error);
-		}
-
-		if(error)
-			error_func.network_error(error.message());
-
+		rpc_stream.listen();
+		io_service_thread = new boost::thread(boost::bind(&boost::asio::io_service::run, &io_service));
 		mem_counter = 0;
+		rpc_stream.connect_to_server(address);
 	}
 
 	~NetworkDevice()
 	{
-		RPCSend snd(socket, &error_func, "stop");
-		snd.write();
+		CyclesRPCCallFactory::rpc_stop(rpc_stream);
+		io_service_thread->interrupt();
+		io_service_thread->join();
 	}
 
 	void mem_alloc(device_memory& mem, MemoryType type)
 	{
-		thread_scoped_lock lock(rpc_lock);
-
 		mem.device_pointer = ++mem_counter;
-
-		RPCSend snd(socket, &error_func, "mem_alloc");
-
-		snd.add(mem);
-		snd.add(type);
-		snd.write();
+		CyclesRPCCallFactory::rpc_mem_alloc(rpc_stream, mem, type);
 	}
 
 	void mem_copy_to(device_memory& mem)
 	{
-		thread_scoped_lock lock(rpc_lock);
-
-		RPCSend snd(socket, &error_func, "mem_copy_to");
-
-		snd.add(mem);
-		snd.write();
-		snd.write_buffer((void*)mem.data_pointer, mem.memory_size());
+		CyclesRPCCallFactory::rpc_mem_copy_to(rpc_stream, mem);
 	}
 
 	void mem_copy_from(device_memory& mem, int y, int w, int h, int elem)
 	{
-		thread_scoped_lock lock(rpc_lock);
-
-		size_t data_size = mem.memory_size();
-
-		RPCSend snd(socket, &error_func, "mem_copy_from");
-
-		snd.add(mem);
-		snd.add(y);
-		snd.add(w);
-		snd.add(h);
-		snd.add(elem);
-		snd.write();
-
-		RPCReceive rcv(socket, &error_func);
-		rcv.read_buffer((void*)mem.data_pointer, data_size);
+		CyclesRPCCallFactory::rpc_mem_copy_from(rpc_stream,
+				mem, y, w, h, elem, (void*)mem.data_pointer);
 	}
 
 	void mem_zero(device_memory& mem)
 	{
-		thread_scoped_lock lock(rpc_lock);
-
-		RPCSend snd(socket, &error_func, "mem_zero");
-
-		snd.add(mem);
-		snd.write();
+		CyclesRPCCallFactory::rpc_mem_zero(rpc_stream, mem);
 	}
 
 	void mem_free(device_memory& mem)
 	{
 		if(mem.device_pointer) {
-			thread_scoped_lock lock(rpc_lock);
-
-			RPCSend snd(socket, &error_func, "mem_free");
-
-			snd.add(mem);
-			snd.write();
-
+			CyclesRPCCallFactory::rpc_mem_free(rpc_stream, mem);
 			mem.device_pointer = 0;
 		}
 	}
 
-	void const_copy_to(const char *name, void *host, size_t size)
+	void const_copy_to(const char *name, void *data, size_t size)
 	{
-		thread_scoped_lock lock(rpc_lock);
-
-		RPCSend snd(socket, &error_func, "const_copy_to");
-
-		string name_string(name);
-
-		snd.add(name_string);
-		snd.add(size);
-		snd.write();
-		snd.write_buffer(host, size);
+		CyclesRPCCallFactory::rpc_const_copy_to(rpc_stream,
+			std::string(name), data, size);
 	}
 
-	void tex_alloc(const char *name, device_memory& mem, InterpolationType interpolation, bool periodic)
+	void tex_alloc(const char *name, device_memory& mem, bool interpolation, bool periodic)
 	{
 		VLOG(1) << "Texture allocate: " << name << ", " << mem.memory_size() << " bytes.";
 
-		thread_scoped_lock lock(rpc_lock);
-
 		mem.device_pointer = ++mem_counter;
 
-		RPCSend snd(socket, &error_func, "tex_alloc");
-
-		string name_string(name);
-
-		snd.add(name_string);
-		snd.add(mem);
-		snd.add(interpolation);
-		snd.add(periodic);
-		snd.write();
-		snd.write_buffer((void*)mem.data_pointer, mem.memory_size());
+		CyclesRPCCallFactory::rpc_tex_alloc(rpc_stream, name, mem, interpolation, periodic);
 	}
 
 	void tex_free(device_memory& mem)
 	{
 		if(mem.device_pointer) {
-			thread_scoped_lock lock(rpc_lock);
-
-			RPCSend snd(socket, &error_func, "tex_free");
-
-			snd.add(mem);
-			snd.write();
-
+			CyclesRPCCallFactory::rpc_tex_free(rpc_stream, mem);
 			mem.device_pointer = 0;
 		}
 	}
 
 	bool load_kernels(bool experimental)
 	{
-		if(error_func.have_error())
-			return false;
-
-		thread_scoped_lock lock(rpc_lock);
-
-		RPCSend snd(socket, &error_func, "load_kernels");
-		snd.add(experimental);
-		snd.write();
-
-		bool result;
-		RPCReceive rcv(socket, &error_func);
-		rcv.read(result);
-
-		return result;
+		bool res = CyclesRPCCallFactory::rpc_load_kernels(rpc_stream, experimental);
+		LOG(INFO) << "load_kernels ->" << res;
+		return res;
 	}
 
 	void task_add(DeviceTask& task)
 	{
-		thread_scoped_lock lock(rpc_lock);
-
 		the_task = task;
-
-		RPCSend snd(socket, &error_func, "task_add");
-		snd.add(task);
-		snd.write();
+		CyclesRPCCallFactory::rpc_task_add(rpc_stream, task);
 	}
 
 	void task_wait()
 	{
-		thread_scoped_lock lock(rpc_lock);
-
-		RPCSend snd(socket, &error_func, "task_wait");
-		snd.write();
-
-		lock.unlock();
+		CyclesRPCCallFactory::rpc_task_wait(rpc_stream);
 
 		TileList the_tiles;
 
 		/* todo: run this threaded for connecting to multiple clients */
-		for(;;) {
-			if(error_func.have_error())
-				break;
-
+		bool done = false;
+		do {
 			RenderTile tile;
 
-			lock.lock();
-			RPCReceive rcv(socket, &error_func);
+			CyclesRPCCallBase *request = rpc_stream.wait_request();
 
-			if(rcv.name == "acquire_tile") {
-				lock.unlock();
-
-				/* todo: watch out for recursive calls! */
+			switch (request->get_call_id())
+			{
+			case CyclesRPCCallBase::acquire_tile_request:
+			{
 				if(the_task.acquire_tile(this, tile)) { /* write return as bool */
 					the_tiles.push_back(tile);
 
-					lock.lock();
-					RPCSend snd(socket, &error_func, "acquire_tile");
-					snd.add(tile);
-					snd.write();
-					lock.unlock();
+					CyclesRPCCallFactory::rpc_acquire_tile_response(rpc_stream, request, true, tile);
 				}
 				else {
-					lock.lock();
-					RPCSend snd(socket, &error_func, "acquire_tile_none");
-					snd.write();
-					lock.unlock();
+					CyclesRPCCallFactory::rpc_acquire_tile_response(rpc_stream, request, false, tile);
 				}
+				break;
 			}
-			else if(rcv.name == "release_tile") {
-				rcv.read(tile);
-				lock.unlock();
+			case CyclesRPCCallBase::release_tile_request:
+			{
+				request->read(tile);
 
 				TileList::iterator it = tile_list_find(the_tiles, tile);
 				if(it != the_tiles.end()) {
@@ -280,34 +355,33 @@ public:
 
 				the_task.release_tile(tile);
 
-				lock.lock();
-				RPCSend snd(socket, &error_func, "release_tile");
-				snd.write();
-				lock.unlock();
-			}
-			else if(rcv.name == "task_wait_done") {
-				lock.unlock();
+				/* FIXME: what's going on here? */
+
+				//RPCSend snd(socket, "release_tile");
+				//snd.write();
+				//lock.unlock();
+
 				break;
 			}
-			else
-				lock.unlock();
-		}
+			case CyclesRPCCallBase::task_wait_done_request:
+				done = true;
+				break;
+
+			default:
+				break;
+			}
+		} while (!done);
 	}
 
 	void task_cancel()
 	{
-		thread_scoped_lock lock(rpc_lock);
-		RPCSend snd(socket, &error_func, "task_cancel");
-		snd.write();
+		CyclesRPCCallFactory::rpc_task_cancel(rpc_stream);
 	}
 
-	int get_split_task_count(DeviceTask& task)
-	{
-		return 1;
+	int get_split_task_count(DeviceTask& task){
+		return 0;
+		/*FIX dummy implementation */
 	}
-
-private:
-	NetworkError error_func;
 };
 
 Device *device_network_create(DeviceInfo& info, Stats &stats, const char *address)
@@ -331,49 +405,52 @@ void device_network_info(vector<DeviceInfo>& devices)
 
 class DeviceServer {
 public:
-	thread_mutex rpc_lock;
-
-	void network_error(const string &message) {
-		error_func.network_error(message);
-	}
-
-	bool have_error() { return error_func.have_error(); }
+	thread_mutex lock;
 
 	DeviceServer(Device *device_, tcp::socket& socket_)
-	: device(device_), socket(socket_), stop(false), blocked_waiting(false)
+		: device(device_), rpc_stream(socket_)
 	{
-		error_func = NetworkError();
+		io_service = &(socket_.get_io_service());
+		 thread_scoped_lock l(lock); // make the mutex lock at least once
+	}
+
+	~DeviceServer(){
+		io_service_thread->interrupt();
+		io_service_thread->join();
 	}
 
 	void listen()
 	{
+		LOG(INFO) << "DEVICE SERVER LISTENING";
+		io_service_thread = new boost::thread(boost::bind(&boost::asio::io_service::run, io_service));
+
+		rpc_stream.listen();
+		//rpc_stream.wait_for();
 		/* receive remote function calls */
 		for(;;) {
-			listen_step();
+			LOG(INFO) << "RPC STREAM WAIT ";
 
-			if(stop)
+			CyclesRPCCallBase *request = rpc_stream.wait_request();
+
+			LOG(INFO) << "RPC STREAM GAVE " << request->get_call_id_name();
+
+			if(request->get_call_id() == CyclesRPCCallBase::stop_request) {
+				io_service->reset();
 				break;
+			}
+
+
+			process(*request);
 		}
 	}
 
 protected:
-	void listen_step()
-	{
-		thread_scoped_lock lock(rpc_lock);
-		RPCReceive rcv(socket, &error_func);
-
-		if(rcv.name == "stop")
-			stop = true;
-		else
-			process(rcv, lock);
-	}
-
 	/* create a memory buffer for a device buffer and insert it into mem_data */
 	DataVector &data_vector_insert(device_ptr client_pointer, size_t data_size)
 	{
 		/* create a new DataVector and insert it into mem_data */
 		pair<DataMap::iterator,bool> data_ins = mem_data.insert(
-		        DataMap::value_type(client_pointer, DataVector()));
+				DataMap::value_type(client_pointer, DataVector()));
 
 		/* make sure it was a unique insertion */
 		assert(data_ins.second);
@@ -438,20 +515,20 @@ protected:
 		return result;
 	}
 
-	/* note that the lock must be already acquired upon entry.
-	 * This is necessary because the caller often peeks at
-	 * the header and delegates control to here when it doesn't
-	 * specifically handle the current RPC.
-	 * The lock must be unlocked before returning */
-	void process(RPCReceive& rcv, thread_scoped_lock &lock)
+	/*  */
+	void process(CyclesRPCCallBase& rcv)
 	{
-		if(rcv.name == "mem_alloc") {
+		VLOG(1) << "process() " <<  rcv.get_call_id_name();
+
+		switch (rcv.get_call_id()) {
+		case CyclesRPCCallBase::mem_alloc_request:
+		{
 			MemoryType type;
 			network_device_memory mem;
 			device_ptr client_pointer;
 
-			rcv.read(mem);
-			rcv.read(type);
+//			rcv.read(mem);
+//			rcv.read(type);
 
 			lock.unlock();
 
@@ -471,11 +548,13 @@ protected:
 
 			/* store a mapping to/from client_pointer and real device pointer */
 			pointer_mapping_insert(client_pointer, mem.device_pointer);
+			break;
 		}
-		else if(rcv.name == "mem_copy_to") {
+		case CyclesRPCCallBase::mem_mem_copy_to_request:
+		{
 			network_device_memory mem;
 
-			rcv.read(mem);
+//			rcv.read(mem);
 			lock.unlock();
 
 			device_ptr client_pointer = mem.device_pointer;
@@ -488,23 +567,25 @@ protected:
 			mem.data_pointer = (device_ptr)&data_v[0];
 
 			/* copy data from network into memory buffer */
-			rcv.read_buffer((uint8_t*)mem.data_pointer, data_size);
+//			rcv.read_buffer((uint8_t*)mem.data_pointer, data_size);
 
 			/* translate the client pointer to a real device pointer */
 			mem.device_pointer = device_ptr_from_client_pointer(client_pointer);
 
 			/* copy the data from the memory buffer to the device buffer */
 			device->mem_copy_to(mem);
+			break;
 		}
-		else if(rcv.name == "mem_copy_from") {
+		case CyclesRPCCallBase::mem_copy_from_request:
+		{
 			network_device_memory mem;
 			int y, w, h, elem;
 
-			rcv.read(mem);
-			rcv.read(y);
-			rcv.read(w);
-			rcv.read(h);
-			rcv.read(elem);
+//			rcv.read(mem);
+//			rcv.read(y);
+//			rcv.read(w);
+//			rcv.read(h);
+//			rcv.read(elem);
 
 			device_ptr client_pointer = mem.device_pointer;
 			mem.device_pointer = device_ptr_from_client_pointer(client_pointer);
@@ -516,16 +597,19 @@ protected:
 			device->mem_copy_from(mem, y, w, h, elem);
 
 			size_t data_size = mem.memory_size();
+			VLOG(1) << "Responding to mem_copy_from size=" << data_size;
 
-			RPCSend snd(socket, &error_func, "mem_copy_from");
-			snd.write();
-			snd.write_buffer((uint8_t*)mem.data_pointer, data_size);
-			lock.unlock();
+			//RPCSend snd(socket);
+			//snd.write();
+			//snd.write_buffer((uint8_t*)mem.data_pointer, data_size);
+			//lock.unlock();
+			break;
 		}
-		else if(rcv.name == "mem_zero") {
+		case CyclesRPCCallBase::mem_zero_request:
+		{
 			network_device_memory mem;
-			
-			rcv.read(mem);
+
+//			rcv.read(mem);
 			lock.unlock();
 
 			device_ptr client_pointer = mem.device_pointer;
@@ -536,12 +620,14 @@ protected:
 			mem.data_pointer = (device_ptr)&(data_v[0]);
 
 			device->mem_zero(mem);
+			break;
 		}
-		else if(rcv.name == "mem_free") {
+		case CyclesRPCCallBase::mem_free_request:
+		{
 			network_device_memory mem;
 			device_ptr client_pointer;
 
-			rcv.read(mem);
+//			rcv.read(mem);
 			lock.unlock();
 
 			client_pointer = mem.device_pointer;
@@ -549,31 +635,35 @@ protected:
 			mem.device_pointer = device_ptr_from_client_pointer_erase(client_pointer);
 
 			device->mem_free(mem);
+			break;
 		}
-		else if(rcv.name == "const_copy_to") {
+		case CyclesRPCCallBase::const_copy_to_request:
+		{
 			string name_string;
 			size_t size;
 
-			rcv.read(name_string);
-			rcv.read(size);
+//			rcv.read(name_string);
+//			rcv.read(size);
 
 			vector<char> host_vector(size);
-			rcv.read_buffer(&host_vector[0], size);
+//			rcv.read_buffer(&host_vector[0], size);
 			lock.unlock();
 
 			device->const_copy_to(name_string.c_str(), &host_vector[0], size);
+			break;
 		}
-		else if(rcv.name == "tex_alloc") {
+		case CyclesRPCCallBase::tex_alloc_request:
+		{
 			network_device_memory mem;
 			string name;
-			InterpolationType interpolation;
+			bool interpolation;
 			bool periodic;
 			device_ptr client_pointer;
 
-			rcv.read(name);
-			rcv.read(mem);
-			rcv.read(interpolation);
-			rcv.read(periodic);
+//			rcv.read(name);
+//			rcv.read(mem);
+//			rcv.read(interpolation);
+//			rcv.read(periodic);
 			lock.unlock();
 
 			client_pointer = mem.device_pointer;
@@ -587,17 +677,18 @@ protected:
 			else
 				mem.data_pointer = 0;
 
-			rcv.read_buffer((uint8_t*)mem.data_pointer, data_size);
-
-			device->tex_alloc(name.c_str(), mem, interpolation, periodic);
+//			rcv.read_buffer((uint8_t*)mem.data_pointer, data_size);
+			device->tex_alloc(name.c_str(), mem, INTERPOLATION_NONE, periodic);
 
 			pointer_mapping_insert(client_pointer, mem.device_pointer);
+			break;
 		}
-		else if(rcv.name == "tex_free") {
+		case CyclesRPCCallBase::tex_free_request:
+		{
 			network_device_memory mem;
 			device_ptr client_pointer;
 
-			rcv.read(mem);
+//			rcv.read(mem);
 			lock.unlock();
 
 			client_pointer = mem.device_pointer;
@@ -605,39 +696,45 @@ protected:
 			mem.device_pointer = device_ptr_from_client_pointer_erase(client_pointer);
 
 			device->tex_free(mem);
+			break;
 		}
-		else if(rcv.name == "load_kernels") {
+		case CyclesRPCCallBase::load_kernels_request:
+		{
 			bool experimental;
 			rcv.read(experimental);
 
-			bool result;
-			result = device->load_kernels(experimental);
-			RPCSend snd(socket, &error_func, "load_kernels");
-			snd.add(result);
-			snd.write();
-			lock.unlock();
+			bool result = device->load_kernels(experimental);
+			rcv.add(result);
+
+			rpc_stream.send_call(rcv);
+			/* TODO(Martijn) send response */
+			//RPCSend snd(socket);
+			//snd.add(result);
+			//snd.write();
+			//lock.unlock();
+			break;
 		}
-		else if(rcv.name == "task_add") {
+		case CyclesRPCCallBase::task_add_request:
+		{
 			DeviceTask task;
 
-			rcv.read(task);
+//			rcv.read(task);
 			lock.unlock();
 
 			if(task.buffer)
 				task.buffer = device_ptr_from_client_pointer(task.buffer);
 
-			if(task.rgba_half)
-				task.rgba_half = device_ptr_from_client_pointer(task.rgba_half);
-
 			if(task.rgba_byte)
 				task.rgba_byte = device_ptr_from_client_pointer(task.rgba_byte);
+
+			if(task.rgba_half)
+				task.rgba_half = device_ptr_from_client_pointer(task.rgba_half);
 
 			if(task.shader_input)
 				task.shader_input = device_ptr_from_client_pointer(task.shader_input);
 
 			if(task.shader_output)
 				task.shader_output = device_ptr_from_client_pointer(task.shader_output);
-
 
 			task.acquire_tile = function_bind(&DeviceServer::task_acquire_tile, this, _1, _2);
 			task.release_tile = function_bind(&DeviceServer::task_release_tile, this, _1);
@@ -646,86 +743,67 @@ protected:
 			task.get_cancel = function_bind(&DeviceServer::task_get_cancel, this);
 
 			device->task_add(task);
+			break;
 		}
-		else if(rcv.name == "task_wait") {
+		case CyclesRPCCallBase::task_wait_request:
+		{
 			lock.unlock();
-
-			blocked_waiting = true;
 			device->task_wait();
-			blocked_waiting = false;
 
 			lock.lock();
-			RPCSend snd(socket, &error_func, "task_wait_done");
-			snd.write();
+//			RPCSend snd(socket, "task_wait_done");
+//			snd.write();
 			lock.unlock();
+			break;
 		}
-		else if(rcv.name == "task_cancel") {
+		case CyclesRPCCallBase::task_cancel_request:
+		{
 			lock.unlock();
 			device->task_cancel();
+			break;
 		}
-		else if(rcv.name == "acquire_tile") {
-			AcquireEntry entry;
-			entry.name = rcv.name;
-			rcv.read(entry.tile);
-			acquire_queue.push_back(entry);
+		case CyclesRPCCallBase::acquire_tile_request:
+		{
+			RenderTile tile;
+//			rcv.read(tile);
 			lock.unlock();
+			//
+			break;
 		}
-		else if(rcv.name == "acquire_tile_none") {
-			AcquireEntry entry;
-			entry.name = rcv.name;
-			acquire_queue.push_back(entry);
-			lock.unlock();
-		}
-		else if(rcv.name == "release_tile") {
-			AcquireEntry entry;
-			entry.name = rcv.name;
-			acquire_queue.push_back(entry);
-			lock.unlock();
-		}
-		else {
-			cout << "Error: unexpected RPC receive call \"" + rcv.name + "\"\n";
-			lock.unlock();
+		default:
+			VLOG(1) << "Unhandled op in CyclesServer::process" << rcv.get_call_id_name();
+			raise(SIGTRAP);
 		}
 	}
 
 	bool task_acquire_tile(Device *device, RenderTile& tile)
 	{
-		thread_scoped_lock acquire_lock(acquire_mutex);
+		//thread_scoped_lock acquire_lock(acquire_mutex);
 
 		bool result = false;
-
-		RPCSend snd(socket, &error_func, "acquire_tile");
+#if 0
+		RPCSend snd(socket, "acquire_tile");
 		snd.write();
 
-		do {
-			if(blocked_waiting)
-				listen_step();
-
-			/* todo: avoid busy wait loop */
+		while(1) {
 			thread_scoped_lock lock(rpc_lock);
+			RPCReceive rcv(socket);
 
-			if(!acquire_queue.empty()) {
-				AcquireEntry entry = acquire_queue.front();
-				acquire_queue.pop_front();
+			if(rcv.name == "acquire_tile") {
+//				rcv.read(tile);
 
-				if(entry.name == "acquire_tile") {
-					tile = entry.tile;
+				if(tile.buffer) tile.buffer = ptr_map[tile.buffer];
+				if(tile.rng_state) tile.rng_state = ptr_map[tile.rng_state];
 
-					if(tile.buffer) tile.buffer = ptr_map[tile.buffer];
-					if(tile.rng_state) tile.rng_state = ptr_map[tile.rng_state];
-
-					result = true;
-					break;
-				}
-				else if(entry.name == "acquire_tile_none") {
-					break;
-				}
-				else {
-					cout << "Error: unexpected acquire RPC receive call \"" + entry.name + "\"\n";
-				}
+				result = true;
+				break;
 			}
-		} while(acquire_queue.empty() && !stop && !have_error());
-
+			else if(rcv.name == "acquire_tile_none")
+				break;
+			else
+				process(rcv, lock);
+		}
+#endif
 		return result;
 	}
 
@@ -741,71 +819,61 @@ protected:
 
 	void task_release_tile(RenderTile& tile)
 	{
-		thread_scoped_lock acquire_lock(acquire_mutex);
-
+		//thread_scoped_lock acquire_lock(acquire_mutex);
 		if(tile.buffer) tile.buffer = ptr_imap[tile.buffer];
 		if(tile.rng_state) tile.rng_state = ptr_imap[tile.rng_state];
 
-		{
-			thread_scoped_lock lock(rpc_lock);
-			RPCSend snd(socket, &error_func, "release_tile");
-			snd.add(tile);
-			snd.write();
-			lock.unlock();
+		CyclesRPCCallFactory::rpc_release_tile(rpc_stream, tile);
+
+		//thread_scoped_lock lock(rpc_lock);
+
+		while(1) {
+			CyclesRPCCallBase *request = rpc_stream.wait_request();
+
+			if (request->get_call_id() == CyclesRPCCallBase::release_tile_request)
+				break;
+
+			//process(rcv);
 		}
-
-		do {
-			if(blocked_waiting)
-				listen_step();
-
-			/* todo: avoid busy wait loop */
-			thread_scoped_lock lock(rpc_lock);
-
-			if(!acquire_queue.empty()) {
-				AcquireEntry entry = acquire_queue.front();
-				acquire_queue.pop_front();
-
-				if(entry.name == "release_tile") {
-					lock.unlock();
-					break;
-				}
-				else {
-					cout << "Error: unexpected release RPC receive call \"" + entry.name + "\"\n";
-				}
-			}
-		} while(acquire_queue.empty() && !stop);
 	}
 
 	bool task_get_cancel()
 	{
+		/* FIXME: return true if there was any network error */
 		return false;
 	}
 
 	/* properties */
 	Device *device;
-	tcp::socket& socket;
+	RPCStreamManager rpc_stream;
+	boost::asio::io_service* io_service;
 
 	/* mapping of remote to local pointer */
 	PtrMap ptr_map;
 	PtrMap ptr_imap;
 	DataMap mem_data;
 
-	struct AcquireEntry {
-		string name;
-		RenderTile tile;
-	};
-
-	thread_mutex acquire_mutex;
-	list<AcquireEntry> acquire_queue;
-
-	bool stop;
-	bool blocked_waiting;
-private:
-	NetworkError error_func;
+	//thread_mutex acquire_mutex;
 
 	/* todo: free memory and device (osl) on network error */
 
+private:
+	boost::thread *io_service_thread;
 };
+
+void HandleAccept(tcp::socket *socket, Device* device, bool* done){
+	DeviceServer server(device, *socket);
+
+
+	string remote_address = socket->remote_endpoint().address().to_string();
+	LOG(INFO) << "Connected to remote client at: " << remote_address.c_str();
+
+	server.listen();
+
+	LOG(INFO) << "Disconnected. " << remote_address.c_str();
+
+	*done = true;
+}
 
 void Device::server_run()
 {
@@ -813,30 +881,30 @@ void Device::server_run()
 		/* starts thread that responds to discovery requests */
 		ServerDiscovery discovery;
 
-		for(;;) {
-			/* accept connection */
-			boost::asio::io_service io_service;
-			tcp::acceptor acceptor(io_service, tcp::endpoint(tcp::v4(), SERVER_PORT));
+		/* accept connection */
+		boost::asio::io_service io_service;
+		tcp::acceptor acceptor(io_service, tcp::endpoint(tcp::v4(), SERVER_PORT));
 
-			tcp::socket socket(io_service);
-			acceptor.accept(socket);
+		tcp::socket socket(io_service);
 
-			string remote_address = socket.remote_endpoint().address().to_string();
-			printf("Connected to remote client at: %s\n", remote_address.c_str());
+		bool done = false;
 
-			DeviceServer server(this, socket);
-			server.listen();
 
-			printf("Disconnected.\n");
+		DLOG(INFO) << "SETING UP ASYNC ACCEPTOR";
+		acceptor.async_accept(socket,boost::bind(&HandleAccept, &socket, this, &done));
+
+		while( !done ){
+			io_service.run();
+			sleep(1);
 		}
+
 	}
 	catch(exception& e) {
 		fprintf(stderr, "Network server exception: %s\n", e.what());
 	}
 }
 
+
 CCL_NAMESPACE_END
 
 #endif
-
-

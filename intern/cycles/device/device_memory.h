@@ -175,9 +175,11 @@ public:
 	/* device pointer */
 	device_ptr device_pointer;
 
+	virtual ~device_memory() { assert(!device_pointer); }
+
 protected:
 	device_memory() {}
-	virtual ~device_memory() { assert(!device_pointer); }
+
 
 	/* no copying */
 	device_memory(const device_memory&);

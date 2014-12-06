@@ -26,12 +26,16 @@
 #include "util_task.h"
 #include "util_logging.h"
 
+#include "util_logging.h"
+
 using namespace ccl;
 
-int main(int argc, const char **argv)
+int main(int argc,const char **argv)
 {
 	util_logging_init(argv[0]);
 	path_init();
+
+	LOG(INFO) << "INIT";
 
 	/* device types */
 	string devicelist = "";
