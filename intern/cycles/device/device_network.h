@@ -225,10 +225,12 @@ struct RPCHeader
 	uint32_t blob_len;
 };
 
-template<size_t buffer_max>
-class RPCCallBase
+/* cycles-specifics are in here */
+class CyclesRPCCallBase
 {
 protected:
+	static const int buffer_max = 256;
+
 	void *blob_ptr;
 	size_t blob_size;
 
@@ -248,7 +250,7 @@ protected:
 		is_zero = 0x80
 	};
 
-	inline RPCCallBase(uint8_t call_id)
+	inline CyclesRPCCallBase(uint8_t call_id)
 		: blob_ptr(NULL)
 		, blob_size(0)
 		, call_id(call_id)
@@ -282,67 +284,7 @@ protected:
 		add_point += str.length();
 	}
 
-	/* used to serialize a new item into buffer[] */
-	template<typename T>
-	void add(T a)
-	{
-		typename ToUnsigned<T>::type little_endian_a = Endian::swap(a);
 
-		/* make sure there's enough room for a type prefix */
-		assert(add_point + 1 <= buffer_max);
-
-		uint8_t type_size = 0;
-
-		if (!std::numeric_limits<T>::is_integer) {
-			/* floating point type */
-			if (memcmp(&a, "\0\0\0\0\0\0\0\0", sizeof(a)) == 0)
-				type_size = 0 | is_zero;
-			else if (sizeof(a) == 4)
-				type_size = 4 | is_float;
-			else
-				assert(!"This shouldn't be possible");
-		}
-		else if (std::numeric_limits<T>::is_signed) {
-			/* signed type */
-			if (a == 0)
-				type_size = 0 | is_zero;
-			else if (in_range<int8_t,T>(a))
-				type_size = 1;
-			else if (in_range<int16_t,T>(a))
-				type_size = 2;
-			else if (in_range<int32_t,T>(a))
-				type_size = 4;
-			else if (in_range<int64_t,T>(a))
-				type_size = 8;
-			else
-				assert(!"This shouldn't be possible");
-		}
-		else {
-			/* unsigned type */
-			if (a == 0)
-				type_size = 0 | is_zero;
-			else if (in_range<uint8_t,T>(a))
-				type_size = 1 | is_unsigned;
-			else if (in_range<uint16_t,T>(a))
-				type_size = 2 | is_unsigned;
-			else if (in_range<uint32_t,T>(a))
-				type_size = 4 | is_unsigned;
-			else if (in_range<uint64_t,T>(a))
-				type_size = 8 | is_unsigned;
-			else
-				assert(!"This shouldn't be possible");
-		}
-
-		/* make sure there's enough room for a type prefix and data */
-		assert(add_point + 1 + (type_size & size_mask) <= buffer_max);
-
-		/* size of type, followed by data */
-		buffer[add_point++] = type_size;
-		if ((type_size & is_zero) == 0) {
-			memcpy(buffer + add_point, &little_endian_a, type_size & size_mask);
-			add_point += type_size & size_mask;
-		}
-	}
 
 	/* overload to avoid problem with shifting float
 	 * no code path will call this, it is to make compiler happy */
@@ -361,59 +303,7 @@ protected:
 		return a;
 	}
 
-	/* used to deserialize an item from buffer[] */
-	template<typename T>
-	void read(T &result)
-	{
-		/* make sure we can read type_size
-		 * and make sure we can read type length bytes */
-		assert(read_point < buffer_max);
 
-		/* get type prefix */
-		uint8_t type_size = buffer[read_point];
-
-		/* extract compressed data length */
-		unsigned size_bytes = type_size & size_mask;
-
-		/* make sure we can read the specified size */
-		assert(read_point + size_bytes < buffer_max);
-
-		/* it's only safe to memset for POD types!
-		 * When we can use c++11 we can make sure at compile time */
-		memset(&result, 0, sizeof(result));
-
-		typename ToUnsigned<T>::type little_endian_value;
-
-		memcpy(&little_endian_value, buffer + read_point + 1, size_bytes);
-
-		/* sign extend */
-		if ((type_size & (is_unsigned|is_zero|is_float)) == 0
-				&& (type_size & size_mask) != sizeof(result)) {
-			little_endian_value = sign_extend(little_endian_value, size_bytes);
-		}
-
-		typename ToUnsigned<T>::type native_endian_value;
-		native_endian_value = Endian::swap(little_endian_value);
-
-		/* at this point, any_endian_value is the native endianness */
-		memcpy(&result, &native_endian_value, sizeof(result));
-
-		read_point += 1 + size_bytes;
-	}
-
-	void read(string& result)
-	{
-		assert(read_point + 1 < buffer_max);
-		uint8_t type_len = buffer[read_point++];
-		assert((type_len & is_string) != 0);
-
-		uint8_t str_len = buffer[read_point++];
-		assert(str_len < 256);
-
-		result.assign(buffer + read_point, buffer + read_point + str_len);
-
-		read_point += str_len;
-	}
 
 public:
 	typedef std::pair<void*,uint32_t> ResponseInfo;
@@ -426,16 +316,10 @@ public:
 	{
 		return ResponseInfo(NULL, 0);
 	}
-};
 
-/* cycles-specifics are in here */
-class CyclesRPCCallBase : public RPCCallBase<256>
-{
+
 public:
 	static const size_t max_payload = 256;
-
-private:
-	typedef RPCCallBase<256> Base;
 
 public:
 	/* uniquely identifies a call, responses will have a matching tag */
@@ -477,9 +361,9 @@ public:
 		last_CallID
 	};
 
-	const char* get_call_id_name()
+	static const char* get_call_id_name(uint8_t id)
 	{
-		switch(call_id){
+		switch(id){
 		case invalid_call: return "invalid_call";
 		case mem_alloc_request: return "mem_alloc_request";
 		case stop_request: return "stop_request";
@@ -536,34 +420,145 @@ public:
 protected:
 	CallTag call_tag;
 
-	 CyclesRPCCallBase(CallID call_id)
-		: RPCCallBase(call_id)
-	{
-	}
-
 public:
+	 /* used to serialize a new item into buffer[] */
+	 template<typename T>
+	 void add(T a)
+	 {
+		 typename ToUnsigned<T>::type little_endian_a = Endian::swap(a);
+
+		 /* make sure there's enough room for a type prefix */
+		 assert(add_point + 1 <= buffer_max);
+
+		 uint8_t type_size = 0;
+
+		 if (!std::numeric_limits<T>::is_integer) {
+			 /* floating point type */
+			 if (memcmp(&a, "\0\0\0\0\0\0\0\0", sizeof(a)) == 0)
+				 type_size = 0 | is_zero;
+			 else if (sizeof(a) == 4)
+				 type_size = 4 | is_float;
+			 else
+				 assert(!"This shouldn't be possible");
+		 }
+		 else if (std::numeric_limits<T>::is_signed) {
+			 /* signed type */
+			 if (a == 0)
+				 type_size = 0 | is_zero;
+			 else if (in_range<int8_t,T>(a))
+				 type_size = 1;
+			 else if (in_range<int16_t,T>(a))
+				 type_size = 2;
+			 else if (in_range<int32_t,T>(a))
+				 type_size = 4;
+			 else if (in_range<int64_t,T>(a))
+				 type_size = 8;
+			 else
+				 assert(!"This shouldn't be possible");
+		 }
+		 else {
+			 /* unsigned type */
+			 if (a == 0)
+				 type_size = 0 | is_zero;
+			 else if (in_range<uint8_t,T>(a))
+				 type_size = 1 | is_unsigned;
+			 else if (in_range<uint16_t,T>(a))
+				 type_size = 2 | is_unsigned;
+			 else if (in_range<uint32_t,T>(a))
+				 type_size = 4 | is_unsigned;
+			 else if (in_range<uint64_t,T>(a))
+				 type_size = 8 | is_unsigned;
+			 else
+				 assert(!"This shouldn't be possible");
+		 }
+
+		 /* make sure there's enough room for a type prefix and data */
+		 assert(add_point + 1 + (type_size & size_mask) <= buffer_max);
+
+		 /* size of type, followed by data */
+		 buffer[add_point++] = type_size;
+		 if ((type_size & is_zero) == 0) {
+			 memcpy(buffer + add_point, &little_endian_a, type_size & size_mask);
+			 add_point += type_size & size_mask;
+		 }
+	 }
+
+	 /* used to deserialize an item from buffer[] */
+	 template<typename T>
+	 void read(T &result)
+	 {
+		 /* make sure we can read type_size
+		  * and make sure we can read type length bytes */
+		 assert(read_point < buffer_max);
+
+		 /* get type prefix */
+		 uint8_t type_size = buffer[read_point];
+
+		 /* extract compressed data length */
+		 unsigned size_bytes = type_size & size_mask;
+
+		 /* make sure we can read the specified size */
+		 assert(read_point + size_bytes < buffer_max);
+
+		 /* it's only safe to memset for POD types!
+		  * When we can use c++11 we can make sure at compile time */
+		 memset(&result, 0, sizeof(result));
+
+		 typename ToUnsigned<T>::type little_endian_value;
+
+		 memcpy(&little_endian_value, buffer + read_point + 1, size_bytes);
+
+		 /* sign extend */
+		 if ((type_size & (is_unsigned|is_zero|is_float)) == 0
+				 && (type_size & size_mask) != sizeof(result)) {
+			 little_endian_value = sign_extend(little_endian_value, size_bytes);
+		 }
+
+		 typename ToUnsigned<T>::type native_endian_value;
+		 native_endian_value = Endian::swap(little_endian_value);
+
+		 /* at this point, any_endian_value is the native endianness */
+		 memcpy(&result, &native_endian_value, sizeof(result));
+
+		 read_point += 1 + size_bytes;
+	 }
+
+	 void read(string& result)
+	 {
+		 assert(read_point + 1 < buffer_max);
+		 uint8_t type_len = buffer[read_point++];
+		 assert((type_len & is_string) != 0);
+
+		 uint8_t str_len = buffer[read_point++];
+		 assert(str_len < 256);
+
+		 result.assign(buffer + read_point, buffer + read_point + str_len);
+
+		 read_point += str_len;
+	 }
+
 	/* serialize a device_memory */
 	void add(const device_memory& mem)
 	{
 		int type = (int)mem.data_type;
-		Base::add(type);
-		Base::add(mem.data_elements);
-		Base::add(mem.data_size);
-		Base::add(mem.data_width);
-		Base::add(mem.data_height);
-		Base::add(mem.device_pointer);
+		add(type);
+		add(mem.data_elements);
+		add(mem.data_size);
+		add(mem.data_width);
+		add(mem.data_height);
+		add(mem.device_pointer);
 	}
 
 	/* deserialize a device_memory */
 	void read(device_memory& mem)
 	{
 		int type;
-		Base::read(type);
-		Base::read(mem.data_elements);
-		Base::read(mem.data_size);
-		Base::read(mem.data_width);
-		Base::read(mem.data_height);
-		Base::read(mem.device_pointer);
+		read(type);
+		read(mem.data_elements);
+		read(mem.data_size);
+		read(mem.data_width);
+		read(mem.data_height);
+		read(mem.device_pointer);
 		mem.data_type = (DataType)type;
 	}
 
@@ -571,97 +566,84 @@ public:
 	void add(const DeviceTask& task)
 	{
 		int type = (int)task.type;
-		Base::add(type);
-		Base::add(task.x);
-		Base::add(task.y);
-		Base::add(task.w);
-		Base::add(task.h);
-		Base::add(task.rgba_byte);
-		Base::add(task.rgba_half);
-		Base::add(task.buffer);
-		Base::add(task.sample);
-		Base::add(task.num_samples);
-		Base::add(task.offset);
-		Base::add(task.stride);
-		Base::add(task.shader_input);
-		Base::add(task.shader_output);
-		Base::add(task.shader_eval_type);
-		Base::add(task.shader_x);
-		Base::add(task.shader_w);
-		Base::add(task.need_finish_queue);
+		add(type);
+		add(task.x);
+		add(task.y);
+		add(task.w);
+		add(task.h);
+		add(task.rgba_byte);
+		add(task.rgba_half);
+		add(task.buffer);
+		add(task.sample);
+		add(task.num_samples);
+		add(task.offset);
+		add(task.stride);
+		add(task.shader_input);
+		add(task.shader_output);
+		add(task.shader_eval_type);
+		add(task.shader_x);
+		add(task.shader_w);
+		add(task.need_finish_queue);
 	}
 
 	/* deserialize a DeviceTask */
 	void read(DeviceTask& task)
 	{
 		int type;
-		Base::read(type);
-		Base::read(task.x);
-		Base::read(task.y);
-		Base::read(task.w);
-		Base::read(task.h);
-		Base::read(task.rgba_byte);
-		Base::read(task.rgba_half);
-		Base::read(task.buffer);
-		Base::read(task.sample);
-		Base::read(task.num_samples);
-		Base::read(task.offset);
-		Base::read(task.stride);
-		Base::read(task.shader_input);
-		Base::read(task.shader_output);
-		Base::read(task.shader_eval_type);
-		Base::read(task.shader_x);
-		Base::read(task.shader_w);
-		Base::read(task.need_finish_queue);
+		read(type);
+		read(task.x);
+		read(task.y);
+		read(task.w);
+		read(task.h);
+		read(task.rgba_byte);
+		read(task.rgba_half);
+		read(task.buffer);
+		read(task.sample);
+		read(task.num_samples);
+		read(task.offset);
+		read(task.stride);
+		read(task.shader_input);
+		read(task.shader_output);
+		read(task.shader_eval_type);
+		read(task.shader_x);
+		read(task.shader_w);
+		read(task.need_finish_queue);
 		task.type = (DeviceTask::Type)type;
 	}
 
 	/* serialize a RenderTile */
 	void add(const RenderTile& tile)
 	{
-		Base::add(tile.x);
-		Base::add(tile.y);
-		Base::add(tile.w);
-		Base::add(tile.h);
-		Base::add(tile.start_sample);
-		Base::add(tile.num_samples);
-		Base::add(tile.sample);
-		Base::add(tile.resolution);
-		Base::add(tile.offset);
-		Base::add(tile.stride);
-		Base::add(tile.buffer);
-		Base::add(tile.rng_state);
+		add(tile.x);
+		add(tile.y);
+		add(tile.w);
+		add(tile.h);
+		add(tile.start_sample);
+		add(tile.num_samples);
+		add(tile.sample);
+		add(tile.resolution);
+		add(tile.offset);
+		add(tile.stride);
+		add(tile.buffer);
+		add(tile.rng_state);
 	}
 
 	/* serialize a RenderTile */
 	void read(RenderTile& tile)
 	{
-		Base::read(tile.x);
-		Base::read(tile.y);
-		Base::read(tile.w);
-		Base::read(tile.h);
-		Base::read(tile.start_sample);
-		Base::read(tile.num_samples);
-		Base::read(tile.sample);
-		Base::read(tile.resolution);
-		Base::read(tile.offset);
-		Base::read(tile.stride);
-		Base::read(tile.buffer);
-		Base::read(tile.rng_state);
+		read(tile.x);
+		read(tile.y);
+		read(tile.w);
+		read(tile.h);
+		read(tile.start_sample);
+		read(tile.num_samples);
+		read(tile.sample);
+		read(tile.resolution);
+		read(tile.offset);
+		read(tile.stride);
+		read(tile.buffer);
+		read(tile.rng_state);
 	}
-
-	template<typename T>
-	void add(const T &a)
-	{
-		Base::add(a);
-	}
-
-	template<typename T>
-	void read(T &a)
-	{
-		Base::read(a);
-	}
-
 };
 
 /* implement a pointer that knows when to delete its object on destruct */
@@ -1422,7 +1404,9 @@ class RPCStreamManager
 		CyclesRPCCallBase::ParameterBuffer blob = item.get_blob();
 
 		thread_scoped_lock lock(send_lock);
-		LOG(INFO) << "SENDING " << item.get_call_id_name();
+		LOG(INFO) << "SENDING " << CyclesRPCCallBase::get_call_id_name(item.get_call_id()) <<
+					 " params " << item.get_parameters().second <<
+					 " blob " << item.get_blob().second;
 
 		boost::asio::write(socket,
 				boost::asio::buffer(&header, sizeof(header)),
@@ -1444,7 +1428,7 @@ class RPCStreamManager
 
 		if(send_err)
 			DLOG(INFO) << "SEND  ERROR" << send_err.message();
-		DLOG(INFO) << "DONE SENDING " << item.get_call_id_name() << " to " << socket.remote_endpoint().address();
+		DLOG(INFO) << "DONE SENDING " << CyclesRPCCallBase::get_call_id_name(item.get_call_id())  << " to " << socket.remote_endpoint().address();
 
 		lock.unlock();
 		if (item.send_request()) {
@@ -1480,17 +1464,15 @@ class RPCStreamManager
 			post_async_recv_header();
 			return;
 		}
-		DLOG(INFO) << "Receiving header " << recv_header.id;
+		DLOG(INFO) << "Receiving header " << CyclesRPCCallBase::get_call_id_name(recv_header.id);
 		if( recv_header.length == 0 && recv_header.blob_len == 0) {
 			/* Packet claims to be done */
 			deliver_recv();
-			post_async_recv_header();
 		} else if (recv_header.length > 0) {
 			post_async_recv_args();
-		}
-		else if (recv_header.blob_len > 0) {
-			//post_async_recv_blob();
-			DLOG(INFO) << "IGNORE BLOB LENGHT" << recv_header.blob_len;
+		} else if (recv_header.blob_len > 0) {
+			post_async_recv_blob();
+			//DLOG(INFO) << "IGNORE BLOB LENGHT" << recv_header.blob_len;
 			deliver_recv();
 		}
 		else {
@@ -1522,7 +1504,6 @@ class RPCStreamManager
 		} else {
 			/* Packet claims to be done */
 			deliver_recv();
-			post_async_recv_header();
 		}
 	}
 
@@ -1551,7 +1532,6 @@ class RPCStreamManager
 		} else {
 			DLOG(ERROR) << "Some network error";
 		}
-		post_async_recv_header();
 	}
 
 	void deliver_recv()
@@ -1559,7 +1539,7 @@ class RPCStreamManager
 		CyclesRPCCallBase *item = CyclesRPCCallFactory::decode_item(
 				recv_header, recv_args_buffer, recv_blob_buffer);
 
-		LOG(INFO) << "DECODING ITEM " << item->get_call_id_name();
+		LOG(INFO) << "DECODING ITEM " << CyclesRPCCallBase::get_call_id_name(item->get_call_id());
 		/* inspect header to see if this is a response */
 		if (recv_header.id & CyclesRPCCallBase::response_flag) {
 			/* it is a response */
@@ -1572,8 +1552,12 @@ class RPCStreamManager
 		else {
 			/* it is a request */
 			recv_queue.push(item);
-			LOG(INFO) << "PUSH ITEM " << item->get_call_id_name();
+			LOG(INFO) << "PUSH ITEM " << CyclesRPCCallBase::get_call_id_name(item->get_call_id());
 		}
+
+		if(recv_state != receiving_args)
+			post_async_recv_header();
+
 	}
 
 	boost::system::error_code connect_impl(const std::string &address)
@@ -1631,10 +1615,11 @@ public:
 
 	void send_call(CyclesRPCCallBase &call)
 	{
-		DLOG(INFO) << "send_call() " << call.get_call_id_name();
+		const char* name = CyclesRPCCallBase::get_call_id_name(call.get_call_id());
+		DLOG(INFO) << "send_call() " << name;
 		Waiter *w;
 		if(send_item(call, w)) {
-			DLOG(INFO) << "waiting for response " << call.get_call_id_name();
+			DLOG(INFO) << "waiting for response " << name;
 			//w->wait(); /* Blocking till we get it */
 		}
 	}
@@ -1652,7 +1637,7 @@ public:
 	{
 		CyclesRPCCallBase *item;
 		recv_queue.pop(item);
-		DLOG(INFO) << "POP " << item->get_call_id_name();
+		DLOG(INFO) << "POP " << CyclesRPCCallBase::get_call_id_name(item->get_call_id());
 		return item;
 	}
 };

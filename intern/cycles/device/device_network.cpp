@@ -432,7 +432,7 @@ public:
 
 			CyclesRPCCallBase *request = rpc_stream.wait_request();
 
-			LOG(INFO) << "RPC STREAM GAVE " << request->get_call_id_name();
+			LOG(INFO) << "RPC STREAM GAVE " << CyclesRPCCallBase::get_call_id_name(request->get_call_id());
 
 			if(request->get_call_id() == CyclesRPCCallBase::stop_request) {
 				io_service->reset();
@@ -518,7 +518,7 @@ protected:
 	/*  */
 	void process(CyclesRPCCallBase& rcv)
 	{
-		VLOG(1) << "process() " <<  rcv.get_call_id_name();
+		VLOG(1) << "process() " <<  CyclesRPCCallBase::get_call_id_name(rcv.get_call_id());
 
 		switch (rcv.get_call_id()) {
 		case CyclesRPCCallBase::mem_alloc_request:
@@ -771,7 +771,8 @@ protected:
 			break;
 		}
 		default:
-			VLOG(1) << "Unhandled op in CyclesServer::process" << rcv.get_call_id_name();
+			VLOG(1) << "Unhandled op in CyclesServer::process" << CyclesRPCCallBase::get_call_id_name(rcv.get_call_id());
+
 			raise(SIGTRAP);
 		}
 	}
