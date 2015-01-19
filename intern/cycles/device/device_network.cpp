@@ -98,6 +98,9 @@ CyclesRPCCallBase *CyclesRPCCallFactory::decode_item(RPCHeader &header,
 	case CyclesRPCCallBase::release_tile_response:
 		return new RPCCall_release_tile_response(header, args_buffer, blob_buffer);
 
+	case CyclesRPCCallBase::load_kernels_response:
+		return new RPCCall_load_kernels(header, args_buffer, blob_buffer);
+
 	default:
 		assert(!"Should not happen!");
 		return NULL;
@@ -173,10 +176,7 @@ bool CyclesRPCCallFactory::rpc_load_kernels(RPCStreamManager& stream,
 	RPCCall_load_kernels call(experimental);
 
 	stream.send_call(call);
-
-	bool res = call.get_result();
-
-	return res;
+	return true; // Lets speculate on succes, next calls might return error
 }
 
 void CyclesRPCCallFactory::rpc_task_add(RPCStreamManager& stream,
@@ -428,19 +428,15 @@ public:
 		//rpc_stream.wait_for();
 		/* receive remote function calls */
 		for(;;) {
-			LOG(INFO) << "RPC STREAM WAIT ";
-
+			DLOG(INFO) << "pc_stream.wait_request()";
 			CyclesRPCCallBase *request = rpc_stream.wait_request();
-
-			LOG(INFO) << "RPC STREAM GAVE " << CyclesRPCCallBase::get_call_id_name(request->get_call_id());
 
 			if(request->get_call_id() == CyclesRPCCallBase::stop_request) {
 				io_service->reset();
 				break;
 			}
-
-
 			process(*request);
+			DLOG(INFO) << "Done processing()";
 		}
 	}
 
@@ -642,14 +638,17 @@ protected:
 			string name_string;
 			size_t size;
 
-//			rcv.read(name_string);
-//			rcv.read(size);
+			rcv.read(name_string);
+			rcv.read(size);
 
-			vector<char> host_vector(size);
-//			rcv.read_buffer(&host_vector[0], size);
+			void* buff;
+			size_t buff_size;
+			rcv.read_blob(&buff, &buff_size);
+
+			LOG_IF(ERROR, (buff_size == size)) << "buff_size != size  " << buff_size << " != " << size;
 			lock.unlock();
 
-			device->const_copy_to(name_string.c_str(), &host_vector[0], size);
+			device->const_copy_to(name_string.c_str(), buff, size);
 			break;
 		}
 		case CyclesRPCCallBase::tex_alloc_request:
@@ -704,14 +703,7 @@ protected:
 			rcv.read(experimental);
 
 			bool result = device->load_kernels(experimental);
-			rcv.add(result);
-
-			rpc_stream.send_call(rcv);
-			/* TODO(Martijn) send response */
-			//RPCSend snd(socket);
-			//snd.add(result);
-			//snd.write();
-			//lock.unlock();
+			// todo if this is not good we should send something
 			break;
 		}
 		case CyclesRPCCallBase::task_add_request:

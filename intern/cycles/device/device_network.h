@@ -282,6 +282,7 @@ protected:
 		buffer[add_point++] = (uint8_t)str.length();
 		memcpy(buffer + add_point, str.c_str(), str.length());
 		add_point += str.length();
+		DLOG(INFO) << "ADD STRING " << str;
 	}
 
 
@@ -357,6 +358,7 @@ public:
 		mem_alloc_response,
 		acquire_tile_response,
 		release_tile_response,
+		load_kernels_response,
 
 		last_CallID
 	};
@@ -388,6 +390,7 @@ public:
 		case mem_alloc_response: return "mem_alloc_response";
 		case acquire_tile_response: return "acquire_tile_response";
 		case release_tile_response: return "release_tile_response";
+		case load_kernels_response: return "load_kernels_response";
 		default: return "Unkown call";
 		}
 	}
@@ -560,6 +563,12 @@ public:
 		read(mem.data_height);
 		read(mem.device_pointer);
 		mem.data_type = (DataType)type;
+	}
+
+	void read_blob(void** ptr, size_t* size)
+	{
+		ptr = &blob_ptr;
+		size = &blob_size;
 	}
 
 	/* serialize a DeviceTask */
@@ -931,7 +940,10 @@ public:
 
 class RPCCall_load_kernels : public CyclesRPCCallBase
 {
+	/* Request: */
 	bool experimental;
+
+	/* Response: */
 	bool result;
 
 	bool send_request()
@@ -945,6 +957,7 @@ class RPCCall_load_kernels : public CyclesRPCCallBase
 		return ResponseInfo(&result, 1);
 	}
 
+
 public:
 	RPCCall_load_kernels(bool experimental)
 		: CyclesRPCCallBase(CyclesRPCCallBase::load_kernels_request)
@@ -957,12 +970,8 @@ public:
 		: CyclesRPCCallBase(CyclesRPCCallBase::CallID(header.id))
 	{
 	}
-
-	bool get_result() const
-	{
-		return result;
-	}
 };
+
 
 class RPCCall_task_add : public CyclesRPCCallBase
 {
@@ -1295,6 +1304,7 @@ class RPCStreamManager
 		thread_condition_variable *done_cond;
 
 		CyclesRPCCallBase::CallID call_id;
+		CyclesRPCCallBase *rcv;
 		bool done;
 
 		void assert_uninitalized()
@@ -1346,12 +1356,18 @@ class RPCStreamManager
 			done_cond = new thread_condition_variable;
 		}
 
-		void wait()
+		void set_rcv(CyclesRPCCallBase *r)
+		{
+			rcv = r;
+		}
+
+		CyclesRPCCallBase* wait()
 		{
 			assert_initalized();
 			thread_scoped_lock lock(*done_lock);
 			while (!done)
 				done_cond->wait(lock);
+			return rcv;
 		}
 
 		void notify()
@@ -1394,7 +1410,9 @@ class RPCStreamManager
 		 * we need to register for unblock before sending */
 
 		Waiter *waiter = NULL;
-		if (item.send_request())
+
+		bool expect_reply = item.send_request();
+		if (expect_reply)
 			waiter = register_for_unblock(item.get_call_id());
 
 		boost::system::error_code send_err;
@@ -1404,9 +1422,16 @@ class RPCStreamManager
 		CyclesRPCCallBase::ParameterBuffer blob = item.get_blob();
 
 		thread_scoped_lock lock(send_lock);
+
+
+
+		header.length = item.get_parameters().second;
+		header.blob_len = item.get_blob().second;
+
 		LOG(INFO) << "SENDING " << CyclesRPCCallBase::get_call_id_name(item.get_call_id()) <<
-					 " params " << item.get_parameters().second <<
-					 " blob " << item.get_blob().second;
+					 " params " << item.get_parameters().second << " " << int(header.length) <<
+					 " blob " << item.get_blob().second << " " << int(header.blob_len);
+
 
 		boost::asio::write(socket,
 				boost::asio::buffer(&header, sizeof(header)),
@@ -1431,7 +1456,7 @@ class RPCStreamManager
 		DLOG(INFO) << "DONE SENDING " << CyclesRPCCallBase::get_call_id_name(item.get_call_id())  << " to " << socket.remote_endpoint().address();
 
 		lock.unlock();
-		if (item.send_request()) {
+		if (expect_reply) {
 			DLOG(INFO) << "EXPECTING a REPLY";
 			w = waiter;
 			return true;
@@ -1464,7 +1489,9 @@ class RPCStreamManager
 			post_async_recv_header();
 			return;
 		}
-		DLOG(INFO) << "Receiving header " << CyclesRPCCallBase::get_call_id_name(recv_header.id);
+		DLOG(INFO) << "Receiving header " << CyclesRPCCallBase::get_call_id_name(recv_header.id) <<
+					  " header.length: " << int(recv_header.length) <<
+					  " blob.length: " << int(recv_header.blob_len);
 		if( recv_header.length == 0 && recv_header.blob_len == 0) {
 			/* Packet claims to be done */
 			deliver_recv();
@@ -1472,8 +1499,6 @@ class RPCStreamManager
 			post_async_recv_args();
 		} else if (recv_header.blob_len > 0) {
 			post_async_recv_blob();
-			//DLOG(INFO) << "IGNORE BLOB LENGHT" << recv_header.blob_len;
-			deliver_recv();
 		}
 		else {
 			DLOG(ERROR) << "Empty request header!";
@@ -1525,12 +1550,10 @@ class RPCStreamManager
 
 	void handle_recv_blob(const boost::system::error_code& error, size_t size)
 	{
-		recv_state = receiving_header;
-
 		if(error ==  0){
 			deliver_recv();
 		} else {
-			DLOG(ERROR) << "Some network error";
+			DLOG(ERROR) << "Some network error" << error;
 		}
 	}
 
@@ -1546,6 +1569,7 @@ class RPCStreamManager
 			DLOG(INFO) << "GOT A VALID RESPONSE";
 			/* wake up waiter */
 			WaiterMap::iterator waiter = waiter_map.find(recv_header.tag);
+			waiter->second->set_rcv(item);
 			waiter->second->notify();
 			waiter_map.erase(waiter);
 		}
@@ -1555,8 +1579,7 @@ class RPCStreamManager
 			LOG(INFO) << "PUSH ITEM " << CyclesRPCCallBase::get_call_id_name(item->get_call_id());
 		}
 
-		if(recv_state != receiving_args)
-			post_async_recv_header();
+		post_async_recv_header();
 
 	}
 
@@ -1619,9 +1642,10 @@ public:
 		DLOG(INFO) << "send_call() " << name;
 		Waiter *w;
 		if(send_item(call, w)) {
-			DLOG(INFO) << "waiting for response " << name;
-			//w->wait(); /* Blocking till we get it */
+			DLOG(INFO) << "not waiting for response for now" << name;
+			//w->wait();
 		}
+		return;
 	}
 
 	void wait_for()
