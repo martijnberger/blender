@@ -31,6 +31,7 @@ set(SRC
 	blender_session.cpp
 	blender_shader.cpp
 	blender_sync.cpp
+	blender_export.cpp
 
 	CCL_api.h
 	blender_sync.h

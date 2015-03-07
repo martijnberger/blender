@@ -20,6 +20,7 @@
 
 #include "blender_sync.h"
 #include "blender_session.h"
+#include "blender_export.h"
 
 #include "util_foreach.h"
 #include "util_md5.h"
@@ -181,6 +182,33 @@ static PyObject *render_func(PyObject *self, PyObject *value)
 
 	Py_RETURN_NONE;
 }
+
+static PyObject *save_func(PyObject *self, PyObject *args)
+{
+	fprintf(stderr, "CALLED save()\n");
+	PyObject *filepath, *pyscene, *pydata;
+
+	if(!PyArg_ParseTuple(args, "OOO", &pyscene, &pydata, &filepath))
+		return NULL;
+
+	PointerRNA sceneptr;
+	RNA_id_pointer_create((ID*)PyLong_AsVoidPtr(pyscene), &sceneptr);
+	BL::Scene b_scene(sceneptr);
+
+	PointerRNA dataptr;
+	RNA_main_pointer_create((Main*)PyLong_AsVoidPtr(pydata), &dataptr);
+	BL::BlendData data(dataptr);
+
+	PyObject *filepath_coerce = NULL;
+	string path = PyC_UnicodeAsByte(filepath, &filepath_coerce);
+	Py_XDECREF(filepath_coerce);
+
+	CyclesSceneExporter e(dataptr, sceneptr, path.c_str());
+	e.export_scene();
+
+	Py_RETURN_TRUE;
+}
+
 
 /* pixel_array and result passed as pointers */
 static PyObject *bake_func(PyObject *self, PyObject *args)
@@ -490,6 +518,7 @@ static PyMethodDef methods[] = {
 	{"create", create_func, METH_VARARGS, ""},
 	{"free", free_func, METH_O, ""},
 	{"render", render_func, METH_O, ""},
+	{"save", save_func, METH_VARARGS, ""},
 	{"bake", bake_func, METH_VARARGS, ""},
 	{"draw", draw_func, METH_VARARGS, ""},
 	{"sync", sync_func, METH_O, ""},

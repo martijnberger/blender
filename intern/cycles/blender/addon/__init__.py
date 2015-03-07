@@ -30,6 +30,8 @@ bl_info = {
 
 import bpy
 
+from bpy.props import StringProperty, IntProperty, BoolProperty, EnumProperty
+from bpy_extras.io_utils import ExportHelper
 from . import engine
 from . import version_update
 
@@ -86,6 +88,33 @@ class CyclesRender(bpy.types.RenderEngine):
             self.report({'ERROR'}, "OSL support disabled in this build.")
 
 
+class ExportCycles(bpy.types.Operator, ExportHelper):
+    """export scene to cycles XML format"""
+    bl_idname = "export_scene.cycles"
+    bl_label = "Export Cycles"
+    bl_options = {'PRESET', 'UNDO'}
+
+    filename_ext = ".cycles"
+
+    filter_glob = StringProperty(
+        default="*.cycles",
+        options={'HIDDEN'},
+    )
+
+    def execute(self, context):
+        filepath = self.properties.filepath
+        import _cycles
+        scene = context.scene.as_pointer()
+        data = bpy.data.as_pointer()
+        res = _cycles.save(scene, data, filepath)
+        return {'FINISHED'}
+
+
+
+def menu_func_export(self, context):
+    self.layout.operator(ExportCycles.bl_idname, text="Export Cycles (.cycles)...")
+
+
 def register():
     from . import ui
     from . import properties
@@ -99,6 +128,7 @@ def register():
     bpy.utils.register_module(__name__)
 
     bpy.app.handlers.version_update.append(version_update.do_versions)
+    bpy.types.INFO_MT_file_export.append(menu_func_export)
 
 
 def unregister():
@@ -111,4 +141,5 @@ def unregister():
     ui.unregister()
     properties.unregister()
     presets.unregister()
+    bpy.types.INFO_MT_file_export.remove(menu_func_export)
     bpy.utils.unregister_module(__name__)
