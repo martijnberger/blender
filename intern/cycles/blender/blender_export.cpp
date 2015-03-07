@@ -20,32 +20,45 @@ void CyclesSceneExporter::export_integrator()
 {
 PointerRNA cscene = RNA_pointer_get(&scene, "cycles");
 
-
-
 fprintf(cxml, "<scene experimental=\"%d\">\n", (RNA_enum_get(&cscene, "feature_set") != 0));
 fprintf(cxml, "  <min_bounces val=\"%d\" />\n", get_int(cscene, "min_bounces"));
 fprintf(cxml, "  <max_bounces val=\"%d\" />\n", get_int(cscene, "max_bounces"));
+
+fprintf(cxml, "  <max_diffuse_bounce val=\"%d\" />\n", get_int(cscene, "diffuse_bounces"));
+fprintf(cxml, "  <max_glossy_bounce val=\"%d\" />\n", get_int(cscene, "glossy_bounces"));
+fprintf(cxml, "  <max_transmission_bounce val=\"%d\" />\n", get_int(cscene, "transmission_bounces"));
+fprintf(cxml, "  <max_volume_bounce val=\"%d\" />\n", get_int(cscene, "volume_bounces"));
+
+fprintf(cxml, "  <transparent_max_bounce val=\"%d\" />\n", get_int(cscene, "transparent_max_bounces"));
+fprintf(cxml, "  <transparent_min_bounce val=\"%d\" />\n", get_int(cscene, "transparent_min_bounces"));
+fprintf(cxml, "  <transparent_shadows val=\"%d\" />\n", get_boolean(cscene, "use_transparent_shadows"));
+
+fprintf(cxml, "  <volume_max_steps val=\"%d\" />\n", get_int(cscene, "volume_max_steps"));
+fprintf(cxml, "  <volume_step_size val=\"%f\" />\n", (double)get_float(cscene, "volume_step_size"));
+
+fprintf(cxml, "  <caustics_reflective val=\"%d\" />\n", get_boolean(cscene, "caustics_reflective"));
+fprintf(cxml, "  <caustics_refractive val=\"%d\" />\n", get_boolean(cscene, "caustics_refractive"));
+
+fprintf(cxml, "  <filter_glossy val=\"%f\" />\n", (double)get_float(cscene, "blur_glossy"));
+fprintf(cxml, "  <seed val=\"%d\" />\n", get_int(cscene, "seed"));
+
+
+fprintf(cxml, "  <min_bounces val=\"%d\" />\n", get_int(cscene, "min_bounces"));
+fprintf(cxml, "  <method val=\"%d\" />\n", get_enum(cscene, "progressive"));
+
+fprintf(cxml, "  <sample_all_lights_direct val=\"%d\" />\n", get_boolean(cscene, "sample_all_lights_direct"));
+fprintf(cxml, "  <sample_all_lights_indirect val=\"%d\" />\n", get_boolean(cscene, "sample_all_lights_indirect"));
+
+fprintf(cxml, "  <diffuse_samples val=\"%d\" />\n", get_int(cscene, "diffuse_samples"));
+fprintf(cxml, "  <glossy_samples val=\"%d\" />\n", get_int(cscene, "glossy_samples"));
+fprintf(cxml, "  <transmission_samples val=\"%d\" />\n", get_int(cscene, "transmission_samples"));
+fprintf(cxml, "  <ao_samples val=\"%d\" />\n", get_int(cscene, "ao_samples"));
+fprintf(cxml, "  <mesh_light_samples val=\"%d\" />\n", get_int(cscene, "mesh_light_samples"));
+fprintf(cxml, "  <subsurface_samples val=\"%d\" />\n", get_int(cscene, "subsurface_samples"));
+fprintf(cxml, "  <volume_samples val=\"%d\" />\n", get_int(cscene, "volume_samples"));
+
 fprintf(cxml, "</scene>\n");
 
-/*
-integrator->max_diffuse_bounce = get_int(cscene, "diffuse_bounces");
-integrator->max_glossy_bounce = get_int(cscene, "glossy_bounces");
-integrator->max_transmission_bounce = get_int(cscene, "transmission_bounces");
-integrator->max_volume_bounce = get_int(cscene, "volume_bounces");
-
-integrator->transparent_max_bounce = get_int(cscene, "transparent_max_bounces");
-integrator->transparent_min_bounce = get_int(cscene, "transparent_min_bounces");
-integrator->transparent_shadows = get_boolean(cscene, "use_transparent_shadows");
-
-integrator->volume_max_steps = get_int(cscene, "volume_max_steps");
-integrator->volume_step_size = get_float(cscene, "volume_step_size");
-
-integrator->caustics_reflective = get_boolean(cscene, "caustics_reflective");
-integrator->caustics_refractive = get_boolean(cscene, "caustics_refractive");
-integrator->filter_glossy = get_float(cscene, "blur_glossy");
-
-integrator->seed = get_int(cscene, "seed");
-*/
 }
 
 
