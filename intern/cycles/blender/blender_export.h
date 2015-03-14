@@ -19,29 +19,37 @@
 
 #include "stdio.h"
 #include "RNA_types.h"
+#include "MEM_guardedalloc.h" // both needed for  RNA_blender_cpp
+#include "malloc.h"           // both needed for  RNA_blender_cpp
+#include "RNA_blender_cpp.h"
 
 CCL_NAMESPACE_BEGIN
 
 class CyclesSceneExporter {
 public:
-    CyclesSceneExporter(PointerRNA &dataptr, PointerRNA &sceneptr,const char *path);
-    ~CyclesSceneExporter(){}
+	CyclesSceneExporter(PointerRNA &dataptr, PointerRNA &sceneptr,const char *path);
+	~CyclesSceneExporter(){}
 
-    void export_scene(){
-        fprintf(stderr, "saving cycles file to %s\n", path);
-        cxml = fopen(path, "w");
-        export_integrator();
-        fclose(cxml);
-    }
+	void export_scene(){
+		fprintf(stderr, "saving cycles file to %s\n", path);
+		cxml = fopen(path, "w");
+		//export_integrator();
+		export_camera();
 
-    void export_integrator();
-    void export_camera();
+		export_dummy();
+		fclose(cxml);
+	}
+
+	void export_integrator();
+	void export_camera();
+
+	void export_dummy();
 
 private:
-    PointerRNA data;
-    PointerRNA scene;
-    const char *path;
-    FILE *cxml;
+	PointerRNA data;
+	BL::Scene scene;
+	const char *path;
+	FILE *cxml;
 };
 
 

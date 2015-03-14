@@ -7,18 +7,21 @@
 
 #include "blender_util.h"
 
-
+/* macros for importing */
+#define RAD2DEGF(_rad) ((_rad) * (float)(180.0 / M_PI))
+#define DEG2RADF(_deg) ((_deg) * (float)(M_PI / 180.0))
 
 CCL_NAMESPACE_BEGIN
 
 CyclesSceneExporter::CyclesSceneExporter(PointerRNA &dataptr, PointerRNA &sceneptr,const char *path):
-	data(dataptr), scene(sceneptr), path(path) {}
+	data(dataptr), scene(sceneptr), path(path) {
+}
 
 
 
 void CyclesSceneExporter::export_integrator()
 {
-PointerRNA cscene = RNA_pointer_get(&scene, "cycles");
+PointerRNA cscene = RNA_pointer_get(&scene.ptr, "cycles");
 
 fprintf(cxml, "<scene experimental=\"%d\">\n", (RNA_enum_get(&cscene, "feature_set") != 0));
 fprintf(cxml, "  <min_bounces val=\"%d\" />\n", get_int(cscene, "min_bounces"));
@@ -64,24 +67,127 @@ fprintf(cxml, "</scene>\n");
 
 void CyclesSceneExporter::export_camera(){
 
+BL::Object camera = scene.camera();
 
-//  bcam->type = CAMERA_PERSPECTIVE;
-//	bcam->zoom = 1.0f;
-//	bcam->pixelaspect = make_float2(1.0f, 1.0f);
-//	bcam->sensor_width = 32.0f;
-//	bcam->sensor_height = 18.0f;
-//	bcam->sensor_fit = BlenderCamera::AUTO;
-//	bcam->shuttertime = 1.0f;
-//	bcam->border.right = 1.0f;
-//	bcam->border.top = 1.0f;
-//	bcam->pano_viewplane.right = 1.0f;
-//	bcam->pano_viewplane.top = 1.0f;
-//	bcam->viewport_camera_border.right = 1.0f;
-//	bcam->viewport_camera_border.top = 1.0f;
+BL::RenderSettings render_settings = scene.render();
 
-//	/* render resolution */
-//	bcam->full_width = render_resolution_x(b_render);
-//	bcam->full_height = render_resolution_y(b_render);
+Transform bmat = get_transform(camera.matrix_world());
+Transform mat = bmat * transform_scale(1.0f, 1.0f, -1.0f);
+
+fprintf(cxml, "<!-- Camera -->\n");
+
+fprintf(cxml, "<transform matrix=\"");
+fprintf(cxml, "%f %f %f %f  ", (double)mat.x.x, (double)mat.y.x, (double)mat.z.x, (double)mat.w.x);
+fprintf(cxml, "%f %f %f %f  ", (double)mat.x.y, (double)mat.y.y, (double)mat.z.y, (double)mat.w.y);
+fprintf(cxml, "%f %f %f %f  ", (double)mat.x.z, (double)mat.y.z, (double)mat.z.z, (double)mat.w.z);
+fprintf(cxml, "%f %f %f %f\"", (double)mat.x.w, (double)mat.y.w, (double)mat.z.w, (double)mat.w.w);
+fprintf(cxml, " >\n");
+
+
+fprintf(cxml, "<camera ");
+
+int percentage;
+
+percentage = render_settings.resolution_percentage();
+
+fprintf(cxml, "width=\"%d\" ", (render_settings.resolution_x() * percentage) / 100 );
+fprintf(cxml, "height=\"%d\" ", (render_settings.resolution_y() * percentage) / 100 );
+
+BL::ID b_ob_data = camera.data();
+
+if(b_ob_data.is_a(&RNA_Camera)) {
+	BL::Camera b_camera(b_ob_data);
+	PointerRNA ccamera = RNA_pointer_get(&b_camera.ptr, "cycles");
+
+	fprintf(cxml, "fov=\"%f\" ", (double)RAD2DEGF(b_camera.angle()));
+	fprintf(cxml, "nearclip=\"%f\" ", (double)b_camera.clip_start());
+	fprintf(cxml, "farclip=\"%f\" ", (double)b_camera.clip_end());
+
+	switch(b_camera.type())
+	{
+		case BL::Camera::type_ORTHO:
+			fprintf(cxml, "type=\"orthographic\" ");
+			break;
+		case BL::Camera::type_PANO:\
+			fprintf(cxml, "type=\"panorama\" ");
+			switch(RNA_enum_get(&ccamera, "panorama_type"))
+			{
+				case 1:
+					fprintf(cxml, "panorama_type=\"fisheye_equidistant\" ");
+					break;
+				case 2:
+					fprintf(cxml, "panorama_type=\"fisheye_equisolid\" ");
+					break;
+				case 0:
+				default:
+					fprintf(cxml, "panorama_type=\"equirectangular\" ");
+					break;
+			}
+			break;
+		case BL::Camera::type_PERSP:
+		default:
+			fprintf(cxml, "type=\"perspective\" ");
+			break;
+	}
+
+}
+
+
+//xml_read_float(&cam->aperturesize, node, "aperturesize"); // 0.5*focallength/fstop
+//xml_read_float(&cam->focaldistance, node, "focaldistance");
+//xml_read_float(&cam->shuttertime, node, "shuttertime");
+//xml_read_float(&cam->aperture_ratio, node, "aperture_ratio");
+
+//xml_read_float(&cam->fisheye_fov, node, "fisheye_fov");
+//xml_read_float(&cam->fisheye_lens, node, "fisheye_lens");
+
+//xml_read_float(&cam->sensorwidth, node, "sensorwidth");
+//xml_read_float(&cam->sensorheight, node, "sensorheight");
+
+//cam->matrix = state.tfm;
+
+fprintf(cxml, " />\n");
+
+fprintf(cxml, "\n</transform>\n");
+
+
+
+}
+
+void CyclesSceneExporter::export_dummy(){
+fprintf(cxml,
+		"<!-- Background Shader -->\n"
+		"<background>\n"
+			"<background name=\"bg\" strength=\"2.0\" color=\"0.2, 0.2, 0.2\" />\n"
+			"<connect from=\"bg background\" to=\"output surface\" />\n"
+		"</background>\n"
+		"\n"
+		"<!-- Cube Shader -->"
+		"<shader name=\"cube\">"
+		"	<checker_texture name=\"tex\" scale=\"2.0\" color1=\"0.8, 0.8, 0.8\" color2=\"1.0, 0.2, 0.2\" />"
+		"	<diffuse_bsdf name=\"cube_closure\" roughness=\"0.0\" />"
+		"	<connect from=\"tex color\" to=\"cube_closure color\" />"
+		"	<connect from=\"cube_closure bsdf\" to=\"output surface\" />"
+		"</shader>"
+
+		"<!-- Cube Object -->"
+		"<state interpolation=\"smooth\" shader=\"cube\">"
+		"    <mesh P=\"1.000000 1.000000 -1.000000"
+		"             1.000000 -1.000000 -1.000000"
+		"             -1.000000 -1.000000 -1.000000"
+		"             -1.000000 1.000000 -1.000000"
+		"             1.000000 0.999999 1.000000"
+		"             0.999999 -1.000001 1.000000"
+		"             -1.000000 -1.000000 1.000000"
+		"             -1.000000 1.000000 1.000000\""
+		"         nverts=\"4 4 4 4 4 4 \""
+		"         verts=\"0 1 2 3"
+		"                4 7 6 5"
+		"                0 4 5 1"
+		"                1 5 6 2"
+		"                2 6 7 3"
+		"                4 0 3 7\"/>"
+		"</state>");
 
 
 }
