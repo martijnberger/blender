@@ -40,6 +40,10 @@ public:
 #  define LOG_SUPPRESS() (true) ? (void) 0 : LogMessageVoidify() & StubStream()
 #  define LOG(severity) LOG_SUPPRESS()
 #  define VLOG(severity) LOG_SUPPRESS()
+#  define DLOG(severity) LOG_SUPPRESS()
+
+#  define LOG_IF(severity, condition) LOG_SUPPRESS()
+
 
 #endif
 

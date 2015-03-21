@@ -1562,7 +1562,7 @@ class RPCStreamManager
 		CyclesRPCCallBase *item = CyclesRPCCallFactory::decode_item(
 				recv_header, recv_args_buffer, recv_blob_buffer);
 
-		LOG(INFO) << "DECODING ITEM " << CyclesRPCCallBase::get_call_id_name(item->get_call_id());
+		LOG(INFO) << "DECODING ITEM " << CyclesRPCCallBase::get_call_id_name(item->get_call_id()) << " args: " << recv_header.length << " blob: " << recv_header.blob_len;
 		/* inspect header to see if this is a response */
 		if (recv_header.id & CyclesRPCCallBase::response_flag) {
 			/* it is a response */

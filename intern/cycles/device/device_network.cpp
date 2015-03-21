@@ -647,7 +647,7 @@ protected:
 
 			LOG_IF(ERROR, (buff_size == size)) << "buff_size != size  " << buff_size << " != " << size;
 			lock.unlock();
-
+			DLOG(INFO) << "const_copy_to( " << name_string << "," << buff << "," << size << ")\n";
 			device->const_copy_to(name_string.c_str(), buff, size);
 			break;
 		}
