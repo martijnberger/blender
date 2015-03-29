@@ -259,6 +259,39 @@ protected:
 	{
 	}
 
+	inline CyclesRPCCallBase(uint8_t call_id, ByteVector *buffer_data)
+		: blob_ptr(NULL)
+		, blob_size(0)
+		, call_id(call_id)
+		, add_point(0)
+		, read_point(0)
+	{
+		// FIX ASAP
+		for(int i = 0; i < min(255,buffer_data->size()); i++){
+			buffer[i] = buffer_data->at(i);
+		}
+
+
+	}
+
+
+	inline CyclesRPCCallBase(uint8_t call_id, ByteVector *buffer_data, ByteVector *blob_data)
+		: call_id(call_id)
+		, add_point(0)
+		, read_point(0)
+	{
+		// FIX ASAP
+		for(int i = 0; i < min(255,buffer_data->size()); i++){
+			buffer[i] = buffer_data->at(i);
+		}
+
+		blob_ptr =  blob_data->data();
+
+		//blob_ptr = static_cast<void*>(&((*blob_data)[0]));
+		blob_size = blob_data->size();
+
+	}
+
 	template<typename Tcheck, typename Tactual>
 	static inline bool in_range(Tactual a)
 	{
@@ -430,6 +463,8 @@ public:
 	 {
 		 typename ToUnsigned<T>::type little_endian_a = Endian::swap(a);
 
+
+
 		 /* make sure there's enough room for a type prefix */
 		 assert(add_point + 1 <= buffer_max);
 
@@ -437,6 +472,7 @@ public:
 
 		 if (!std::numeric_limits<T>::is_integer) {
 			 /* floating point type */
+			 DLOG(INFO) << "ADD (float) " << a;
 			 if (memcmp(&a, "\0\0\0\0\0\0\0\0", sizeof(a)) == 0)
 				 type_size = 0 | is_zero;
 			 else if (sizeof(a) == 4)
@@ -446,6 +482,7 @@ public:
 		 }
 		 else if (std::numeric_limits<T>::is_signed) {
 			 /* signed type */
+			 DLOG(INFO) << "ADD (signed) " << a;
 			 if (a == 0)
 				 type_size = 0 | is_zero;
 			 else if (in_range<int8_t,T>(a))
@@ -461,6 +498,7 @@ public:
 		 }
 		 else {
 			 /* unsigned type */
+			 DLOG(INFO) << "ADD (unsigned) " << a;
 			 if (a == 0)
 				 type_size = 0 | is_zero;
 			 else if (in_range<uint8_t,T>(a))
@@ -481,7 +519,8 @@ public:
 		 /* size of type, followed by data */
 		 buffer[add_point++] = type_size;
 		 if ((type_size & is_zero) == 0) {
-			 memcpy(buffer + add_point, &little_endian_a, type_size & size_mask);
+			 DLOG(INFO) << "ADDING " << (int)(type_size & size_mask) << " bytes, payload " << std::hex << little_endian_a;
+			 memcpy(buffer + add_point, (char*)&a, type_size & size_mask);
 			 add_point += type_size & size_mask;
 		 }
 	 }
@@ -495,7 +534,7 @@ public:
 		 assert(read_point < buffer_max);
 
 		 /* get type prefix */
-		 uint8_t type_size = buffer[read_point];
+		 uint8_t type_size = buffer[read_point++];
 
 		 /* extract compressed data length */
 		 unsigned size_bytes = type_size & size_mask;
@@ -507,23 +546,28 @@ public:
 		  * When we can use c++11 we can make sure at compile time */
 		 memset(&result, 0, sizeof(result));
 
-		 typename ToUnsigned<T>::type little_endian_value;
+		 typename ToUnsigned<T>::type little_endian_value = 0;
 
-		 memcpy(&little_endian_value, buffer + read_point + 1, size_bytes);
+		 memcpy(&little_endian_value, buffer + read_point, size_bytes);
 
-		 /* sign extend */
-		 if ((type_size & (is_unsigned|is_zero|is_float)) == 0
-				 && (type_size & size_mask) != sizeof(result)) {
-			 little_endian_value = sign_extend(little_endian_value, size_bytes);
-		 }
+		 DLOG(INFO) << "READ " << little_endian_value << " size_bytes " << size_bytes;
 
-		 typename ToUnsigned<T>::type native_endian_value;
-		 native_endian_value = Endian::swap(little_endian_value);
+//		 /* sign extend */ TODO FIX this endian magic...
+//		 if ((type_size & (is_unsigned|is_zero|is_float)) == 0
+//				 && (type_size & size_mask) != sizeof(result)) {
+//			 little_endian_value = sign_extend(little_endian_value, size_bytes);
+//		 }
 
-		 /* at this point, any_endian_value is the native endianness */
-		 memcpy(&result, &native_endian_value, sizeof(result));
+//		 typename ToUnsigned<T>::type native_endian_value;
+//		 native_endian_value = Endian::swap(little_endian_value);
 
-		 read_point += 1 + size_bytes;
+//		 /* at this point, any_endian_value is the native endianness */
+//		 memcpy(&result, &native_endian_value, sizeof(result));
+
+		 memcpy(&result, &little_endian_value, sizeof(result));
+		 DLOG(INFO) << "READ result " << result << "  0x" << std::hex << result;
+
+		 read_point += size_bytes;
 	 }
 
 	 void read(string& result)
@@ -593,6 +637,7 @@ public:
 		add(task.shader_x);
 		add(task.shader_w);
 		add(task.need_finish_queue);
+		add(task.integrator_branched);
 	}
 
 	/* deserialize a DeviceTask */
@@ -617,6 +662,7 @@ public:
 		read(task.shader_x);
 		read(task.shader_w);
 		read(task.need_finish_queue);
+		read(task.integrator_branched);
 		task.type = (DeviceTask::Type)type;
 	}
 
@@ -719,9 +765,9 @@ public:
 		, mem(&mem, false), type(type)
 	{}
 
-	RPCCall_mem_alloc(RPCHeader &header,
-			ByteVector& args_buffer, ByteVector& blob_buffer)
-		: CyclesRPCCallBase(CyclesRPCCallBase::CallID(header.id))
+	RPCCall_mem_alloc(RPCHeader *header,
+			ByteVector *args_buffer, ByteVector *blob_buffer)
+		: CyclesRPCCallBase(CyclesRPCCallBase::CallID(header->id))
 	{
 		int inttype;
 		mem.assign(new network_device_memory, true);
@@ -743,9 +789,9 @@ public:
 		: CyclesRPCCallBase(stop_request)
 	{}
 
-	RPCCall_stop(RPCHeader &header,
-			ByteVector& args_buffer, ByteVector& blob_buffer)
-		: CyclesRPCCallBase(CyclesRPCCallBase::CallID(header.id))
+	RPCCall_stop(RPCHeader *header,
+			ByteVector *args_buffer, ByteVector *blob_buffer)
+		: CyclesRPCCallBase(CyclesRPCCallBase::CallID(header->id))
 	{
 	}
 };
@@ -768,9 +814,9 @@ public:
 		, mem(&mem, false)
 	{}
 
-	RPCCall_mem_copy_to(RPCHeader &header,
-			ByteVector& args_buffer, ByteVector& blob_buffer)
-		: CyclesRPCCallBase(CyclesRPCCallBase::CallID(header.id))
+	RPCCall_mem_copy_to(RPCHeader *header,
+			ByteVector *args_buffer, ByteVector *blob_buffer)
+		: CyclesRPCCallBase(CyclesRPCCallBase::CallID(header->id))
 	{
 	}
 };
@@ -803,9 +849,9 @@ public:
 		, mem(&mem, false), y(y), w(w), h(h), elem(elem), output(output)
 	{}
 
-	RPCCall_mem_copy_from(RPCHeader &header,
-			ByteVector& args_buffer, ByteVector& blob_buffer)
-		: CyclesRPCCallBase(CyclesRPCCallBase::CallID(header.id))
+	RPCCall_mem_copy_from(RPCHeader *header,
+			ByteVector *args_buffer, ByteVector *blob_buffer)
+		: CyclesRPCCallBase(CyclesRPCCallBase::CallID(header->id))
 	{
 	}
 };
@@ -826,9 +872,9 @@ public:
 		, mem(&mem, false)
 	{}
 
-	RPCCall_mem_zero(RPCHeader &header,
-			ByteVector& args_buffer, ByteVector& blob_buffer)
-		: CyclesRPCCallBase(CyclesRPCCallBase::CallID(header.id))
+	RPCCall_mem_zero(RPCHeader *header,
+			ByteVector *args_buffer, ByteVector *blob_buffer)
+		: CyclesRPCCallBase(CyclesRPCCallBase::CallID(header->id))
 	{
 	}
 };
@@ -849,22 +895,22 @@ public:
 		, mem(&mem, false)
 	{}
 
-	RPCCall_mem_free(RPCHeader &header,
-			ByteVector& args_buffer, ByteVector& blob_buffer)
-		: CyclesRPCCallBase(CyclesRPCCallBase::CallID(header.id))
+	RPCCall_mem_free(RPCHeader *header,
+			ByteVector *args_buffer, ByteVector *blob_buffer)
+		: CyclesRPCCallBase(CyclesRPCCallBase::CallID(header->id))
 	{
 	}
 };
 
 class RPCCall_const_copy_to : public CyclesRPCCallBase
 {
-	OwnershipPointer<const std::string> name;
+	const std::string name;
 	void *data;
 	size_t size;
 
 	bool send_request()
 	{
-		add(*name);
+		add(name);
 		add(size);
 		add_blob(data, size);
 		return false;
@@ -873,12 +919,12 @@ class RPCCall_const_copy_to : public CyclesRPCCallBase
 public:
 	RPCCall_const_copy_to(const std::string& name, void *data, size_t size)
 		: CyclesRPCCallBase(const_copy_to_request)
-		, name(&name, false), data(data), size(size)
+		, name(name), data(data), size(size)
 	{}
 
-	RPCCall_const_copy_to(RPCHeader &header,
-			ByteVector& args_buffer, ByteVector& blob_buffer)
-		: CyclesRPCCallBase(CyclesRPCCallBase::CallID(header.id))
+	RPCCall_const_copy_to(RPCHeader *header,
+			ByteVector *args_buffer, ByteVector *blob_buffer)
+		: CyclesRPCCallBase(CyclesRPCCallBase::CallID(header->id), args_buffer, blob_buffer)
 	{
 	}
 };
@@ -908,9 +954,9 @@ public:
 		, interpolation(interpolation), periodic(periodic)
 	{}
 
-	RPCCall_tex_alloc(RPCHeader &header,
-			ByteVector& args_buffer, ByteVector& blob_buffer)
-		: CyclesRPCCallBase(CyclesRPCCallBase::CallID(header.id))
+	RPCCall_tex_alloc(RPCHeader *header,
+			ByteVector *args_buffer, ByteVector *blob_buffer)
+		: CyclesRPCCallBase(CyclesRPCCallBase::CallID(header->id))
 	{
 	}
 };
@@ -931,9 +977,9 @@ public:
 		, mem(&mem, false)
 	{}
 
-	RPCCall_tex_free(RPCHeader &header,
-			ByteVector& args_buffer, ByteVector& blob_buffer)
-		: CyclesRPCCallBase(CyclesRPCCallBase::CallID(header.id))
+	RPCCall_tex_free(RPCHeader *header,
+			ByteVector *args_buffer, ByteVector *blob_buffer)
+		: CyclesRPCCallBase(CyclesRPCCallBase::CallID(header->id))
 	{
 	}
 };
@@ -965,9 +1011,9 @@ public:
 	{
 	}
 
-	RPCCall_load_kernels(RPCHeader &header,
-			ByteVector& args_buffer, ByteVector& blob_buffer)
-		: CyclesRPCCallBase(CyclesRPCCallBase::CallID(header.id))
+	RPCCall_load_kernels(RPCHeader *header,
+			ByteVector *args_buffer, ByteVector *blob_buffer)
+		: CyclesRPCCallBase(CyclesRPCCallBase::CallID(header->id))
 	{
 	}
 };
@@ -989,9 +1035,9 @@ public:
 		, task(&task, false)
 	{}
 
-	RPCCall_task_add(RPCHeader &header,
-			ByteVector& args_buffer, ByteVector& blob_buffer)
-		: CyclesRPCCallBase(CyclesRPCCallBase::CallID(header.id))
+	RPCCall_task_add(RPCHeader *header,
+			ByteVector *args_buffer, ByteVector *blob_buffer)
+		: CyclesRPCCallBase(CyclesRPCCallBase::CallID(header->id))
 	{
 	}
 };
@@ -1008,9 +1054,9 @@ public:
 		: CyclesRPCCallBase(task_wait_request)
 	{}
 
-	RPCCall_task_wait(RPCHeader &header,
-			ByteVector& args_buffer, ByteVector& blob_buffer)
-		: CyclesRPCCallBase(CyclesRPCCallBase::CallID(header.id))
+	RPCCall_task_wait(RPCHeader *header,
+			ByteVector *args_buffer, ByteVector *blob_buffer)
+		: CyclesRPCCallBase(CyclesRPCCallBase::CallID(header->id))
 	{
 	}
 };
@@ -1027,9 +1073,9 @@ public:
 		: CyclesRPCCallBase(task_cancel_request)
 	{}
 
-	RPCCall_task_cancel(RPCHeader &header,
-			ByteVector& args_buffer, ByteVector& blob_buffer)
-		: CyclesRPCCallBase(CyclesRPCCallBase::CallID(header.id))
+	RPCCall_task_cancel(RPCHeader *header,
+			ByteVector *args_buffer, ByteVector *blob_buffer)
+		: CyclesRPCCallBase(CyclesRPCCallBase::CallID(header->id))
 	{
 	}
 };
@@ -1047,9 +1093,9 @@ public:
 	{
 	}
 
-	RPCCall_acquire_tile(RPCHeader &header,
-			ByteVector& args_buffer, ByteVector& blob_buffer)
-		: CyclesRPCCallBase(CyclesRPCCallBase::CallID(header.id))
+	RPCCall_acquire_tile(RPCHeader *header,
+			ByteVector *args_buffer, ByteVector *blob_buffer)
+		: CyclesRPCCallBase(CyclesRPCCallBase::CallID(header->id))
 	{
 	}
 };
@@ -1067,9 +1113,9 @@ public:
 	{
 	}
 
-	RPCCall_release_tile(RPCHeader &header,
-			ByteVector& args_buffer, ByteVector& blob_buffer)
-		: CyclesRPCCallBase(CyclesRPCCallBase::CallID(header.id))
+	RPCCall_release_tile(RPCHeader *header,
+			ByteVector *args_buffer, ByteVector *blob_buffer)
+		: CyclesRPCCallBase(CyclesRPCCallBase::CallID(header->id))
 	{
 	}
 };
@@ -1087,9 +1133,9 @@ public:
 	{
 	}
 
-	RPCCall_task_wait_done(RPCHeader &header,
-			ByteVector& args_buffer, ByteVector& blob_buffer)
-		: CyclesRPCCallBase(CyclesRPCCallBase::CallID(header.id))
+	RPCCall_task_wait_done(RPCHeader *header,
+			ByteVector *args_buffer, ByteVector *blob_buffer)
+		: CyclesRPCCallBase(CyclesRPCCallBase::CallID(header->id))
 	{
 	}
 };
@@ -1107,9 +1153,9 @@ public:
 	{
 	}
 
-	RPCCall_mem_alloc_response(RPCHeader &header,
-			ByteVector& args_buffer, ByteVector& blob_buffer)
-		: CyclesRPCCallBase(CyclesRPCCallBase::CallID(header.id))
+	RPCCall_mem_alloc_response(RPCHeader *header,
+			ByteVector *args_buffer, ByteVector *blob_buffer)
+		: CyclesRPCCallBase(CyclesRPCCallBase::CallID(header->id))
 	{
 	}
 };
@@ -1127,9 +1173,9 @@ public:
 	{
 	}
 
-	RPCCall_acquire_tile_response(RPCHeader &header,
-			ByteVector& args_buffer, ByteVector& blob_buffer)
-		: CyclesRPCCallBase(CyclesRPCCallBase::CallID(header.id))
+	RPCCall_acquire_tile_response(RPCHeader *header,
+			ByteVector *args_buffer, ByteVector *blob_buffer)
+		: CyclesRPCCallBase(CyclesRPCCallBase::CallID(header->id))
 	{
 	}
 };
@@ -1147,9 +1193,9 @@ public:
 	{
 	}
 
-	RPCCall_release_tile_response(RPCHeader &header,
-			ByteVector& args_buffer, ByteVector& blob_buffer)
-		: CyclesRPCCallBase(CyclesRPCCallBase::CallID(header.id))
+	RPCCall_release_tile_response(RPCHeader *header,
+			ByteVector *args_buffer, ByteVector *blob_buffer)
+		: CyclesRPCCallBase(CyclesRPCCallBase::CallID(header->id))
 	{
 	}
 };
@@ -1207,9 +1253,9 @@ class RPCStreamManager;
 class CyclesRPCCallFactory
 {
 public:
-	static CyclesRPCCallBase *decode_item(RPCHeader &header,
-			ByteVector &args_buffer,
-			ByteVector &blob_buffer);
+	static CyclesRPCCallBase *decode_item(RPCHeader *header,
+			ByteVector *args_buffer,
+			ByteVector *blob_buffer);
 
 	static void rpc_mem_alloc(RPCStreamManager& stream,
 			device_memory& mem, MemoryType type);
@@ -1291,9 +1337,9 @@ class RPCStreamManager
 
 	ReceiveState recv_state;
 
-	RPCHeader recv_header;
-	ByteVector recv_args_buffer;
-	ByteVector recv_blob_buffer;
+	RPCHeader *recv_header;
+	ByteVector *recv_args_buffer;
+	ByteVector *recv_blob_buffer;
 
 	/* object upon which to block when waiting */
 	class Waiter
@@ -1471,11 +1517,11 @@ class RPCStreamManager
 	void post_async_recv_header()
 	{
 		DLOG(INFO) << "REGISTERING CALLBACK FOR RECEIVING A HEADER";
-
+		recv_header = new RPCHeader();
 		recv_state = receiving_header;
 
 		boost::asio::async_read(socket,
-				boost::asio::buffer(&recv_header, sizeof(recv_header)),
+				boost::asio::buffer(recv_header, sizeof(recv_header)),
 				boost::bind(&RPCStreamManager::handle_recv_header, this,
 				boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
 	}
@@ -1489,15 +1535,15 @@ class RPCStreamManager
 			post_async_recv_header();
 			return;
 		}
-		DLOG(INFO) << "Receiving header " << CyclesRPCCallBase::get_call_id_name(recv_header.id) <<
-					  " header.length: " << int(recv_header.length) <<
-					  " blob.length: " << int(recv_header.blob_len);
-		if( recv_header.length == 0 && recv_header.blob_len == 0) {
+		DLOG(INFO) << "Receiving header " << CyclesRPCCallBase::get_call_id_name(recv_header->id);
+		DLOG(INFO) << "header.length: " << int(recv_header->length);
+		DLOG(INFO) << "blob.length: " << int(recv_header->blob_len);
+		if( recv_header->length == 0 && recv_header->blob_len == 0) {
 			/* Packet claims to be done */
 			deliver_recv();
-		} else if (recv_header.length > 0) {
+		} else if (recv_header->length > 0) {
 			post_async_recv_args();
-		} else if (recv_header.blob_len > 0) {
+		} else if (recv_header->blob_len > 0) {
 			post_async_recv_blob();
 		}
 		else {
@@ -1509,22 +1555,22 @@ class RPCStreamManager
 	void post_async_recv_args()
 	{
 		DLOG(INFO) << "REGISTERING CALLBACK FOR RECEIVING ARGS";
+		recv_args_buffer = new ByteVector(recv_header->length, 0);
+
+
 
 		recv_state = receiving_args;
 
-		/* expand buffer if needed */
-		if (recv_args_buffer.size() < recv_header.length)
-			recv_args_buffer.resize(recv_header.length);
-
 		boost::asio::async_read(socket,
-				boost::asio::buffer(&recv_args_buffer[0], recv_header.length),
+				boost::asio::buffer(*recv_args_buffer),
 				boost::bind(&RPCStreamManager::handle_recv_args, this,
 				boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
 	}
 
 	void handle_recv_args(const boost::system::error_code& error, size_t size)
 	{
-		if (recv_header.blob_len > 0) {
+		DLOG(INFO) << "RECEIVED ARGS " << (int)recv_header->length << " "  << recv_args_buffer->size();
+		if (recv_header->blob_len > 0) {
 			post_async_recv_blob();
 		} else {
 			/* Packet claims to be done */
@@ -1535,21 +1581,19 @@ class RPCStreamManager
 	void post_async_recv_blob()
 	{
 		DLOG(INFO) << "REGISTERING CALLBACK FOR RECEIVING BLOB";
-
+		recv_blob_buffer = new ByteVector(recv_header->blob_len, 0);
 		recv_state = receiving_blob;
 
-		/* expand buffer if needed */
-		if (recv_blob_buffer.size() < recv_header.blob_len)
-			recv_blob_buffer.resize(recv_header.blob_len);
-
 		boost::asio::async_read(socket,
-				boost::asio::buffer(&recv_blob_buffer[0], recv_header.blob_len),
+				boost::asio::buffer(*recv_blob_buffer),
 				boost::bind(&RPCStreamManager::handle_recv_blob, this,
 				boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
 	}
 
 	void handle_recv_blob(const boost::system::error_code& error, size_t size)
 	{
+		//LOG_IF(FATAL, (int)recv_header->blob_len != recv_blob_buffer->size() -1 ) << "error";
+		DLOG(INFO) << "RECEIVED BLOB " << (int)recv_header->blob_len << " "  << recv_blob_buffer->size();
 		if(error ==  0){
 			deliver_recv();
 		} else {
@@ -1562,13 +1606,21 @@ class RPCStreamManager
 		CyclesRPCCallBase *item = CyclesRPCCallFactory::decode_item(
 				recv_header, recv_args_buffer, recv_blob_buffer);
 
-		LOG(INFO) << "DECODING ITEM " << CyclesRPCCallBase::get_call_id_name(item->get_call_id()) << " args: " << recv_header.length << " blob: " << recv_header.blob_len;
+		if(recv_header->length > 0){
+
+			for(int  j = 0; j < recv_header->length; j++)
+				fprintf(stderr, "%02X ", (*recv_args_buffer)[j]);
+			fprintf(stderr, "\n");
+
+		}
+
+		LOG(INFO) << "DECODING ITEM " << CyclesRPCCallBase::get_call_id_name(item->get_call_id()) << " args: " << (int)recv_header->length << " blob: " << (int)recv_header->blob_len;
 		/* inspect header to see if this is a response */
-		if (recv_header.id & CyclesRPCCallBase::response_flag) {
+		if (recv_header->id & CyclesRPCCallBase::response_flag) {
 			/* it is a response */
 			DLOG(INFO) << "GOT A VALID RESPONSE";
 			/* wake up waiter */
-			WaiterMap::iterator waiter = waiter_map.find(recv_header.tag);
+			WaiterMap::iterator waiter = waiter_map.find(recv_header->tag);
 			waiter->second->set_rcv(item);
 			waiter->second->notify();
 			waiter_map.erase(waiter);
@@ -1576,7 +1628,7 @@ class RPCStreamManager
 		else {
 			/* it is a request */
 			recv_queue.push(item);
-			LOG(INFO) << "PUSH ITEM " << CyclesRPCCallBase::get_call_id_name(item->get_call_id());
+			LOG(INFO) << "PUSH ITEM " << CyclesRPCCallBase::get_call_id_name(item->get_call_id()) << "";
 		}
 
 		post_async_recv_header();
@@ -1623,7 +1675,6 @@ public:
 	 * an inbound connection from client */
 	RPCStreamManager(tcp::socket& incoming)
 		: socket(incoming)
-		, recv_args_buffer(CyclesRPCCallBase::max_payload, 0)
 	{
 	}
 

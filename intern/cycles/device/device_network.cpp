@@ -34,11 +34,11 @@ typedef map<device_ptr, DataVector> DataMap;
 typedef vector<RenderTile> TileList;
 
 
-CyclesRPCCallBase *CyclesRPCCallFactory::decode_item(RPCHeader &header,
-		ByteVector& args_buffer,
-		ByteVector& blob_buffer)
+CyclesRPCCallBase *CyclesRPCCallFactory::decode_item(RPCHeader* header,
+		ByteVector* args_buffer,
+		ByteVector* blob_buffer)
 {
-	switch (header.id)
+	switch (header->id)
 	{
 	case CyclesRPCCallBase::mem_alloc_request:
 		return new RPCCall_mem_alloc(header, args_buffer, blob_buffer);
@@ -151,6 +151,7 @@ void CyclesRPCCallFactory::rpc_mem_free(RPCStreamManager& stream,
 void CyclesRPCCallFactory::rpc_const_copy_to(RPCStreamManager& stream,
 		const std::string& name, void *data, size_t size)
 {
+	DLOG(INFO) << "const_copy_to_call " << name << " " << size;
 	RPCCall_const_copy_to call(name, data, size);
 	stream.send_call(call);
 }
@@ -640,12 +641,11 @@ protected:
 
 			rcv.read(name_string);
 			rcv.read(size);
-
 			void* buff;
 			size_t buff_size;
 			rcv.read_blob(&buff, &buff_size);
 
-			LOG_IF(ERROR, (buff_size == size)) << "buff_size != size  " << buff_size << " != " << size;
+			LOG_IF(ERROR, (buff_size != size)) << "buff_size != size  " << buff_size << " != " << size;
 			lock.unlock();
 			DLOG(INFO) << "const_copy_to( " << name_string << "," << buff << "," << size << ")\n";
 			device->const_copy_to(name_string.c_str(), buff, size);
