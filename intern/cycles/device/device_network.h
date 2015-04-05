@@ -285,9 +285,7 @@ protected:
 			buffer[i] = buffer_data->at(i);
 		}
 
-		blob_ptr =  blob_data->data();
-
-		//blob_ptr = static_cast<void*>(&((*blob_data)[0]));
+		blob_ptr =  (void *)&blob_data[0];
 		blob_size = blob_data->size();
 
 	}
@@ -550,7 +548,7 @@ public:
 
 		 memcpy(&little_endian_value, buffer + read_point, size_bytes);
 
-		 DLOG(INFO) << "READ " << little_endian_value << " size_bytes " << size_bytes;
+//		 DLOG(INFO) << "READ " << little_endian_value << " size_bytes " << size_bytes;
 
 //		 /* sign extend */ TODO FIX this endian magic...
 //		 if ((type_size & (is_unsigned|is_zero|is_float)) == 0
@@ -624,6 +622,7 @@ public:
 		add(task.y);
 		add(task.w);
 		add(task.h);
+		DLOG(INFO) << "Task: x " << task.x << ", y: " << task.y << ", w: " << task.w << ", h: " << task.h;
 		add(task.rgba_byte);
 		add(task.rgba_half);
 		add(task.buffer);
@@ -649,6 +648,7 @@ public:
 		read(task.y);
 		read(task.w);
 		read(task.h);
+		DLOG(INFO) << "Task: x " << task.x << ", y: " << task.y << ", w: " << task.w << ", h: " << task.h;
 		read(task.rgba_byte);
 		read(task.rgba_half);
 		read(task.buffer);

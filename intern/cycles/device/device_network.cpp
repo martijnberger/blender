@@ -226,6 +226,7 @@ public:
 	boost::asio::io_service io_service;
 	tcp::socket socket;
 	device_ptr mem_counter;
+
 	DeviceTask the_task; /* todo: handle multiple tasks */
 
 	boost::thread *io_service_thread;
@@ -248,6 +249,8 @@ public:
 		io_service_thread->interrupt();
 		io_service_thread->join();
 	}
+
+
 
 	void mem_alloc(device_memory& mem, MemoryType type)
 	{
@@ -312,11 +315,14 @@ public:
 	void task_add(DeviceTask& task)
 	{
 		the_task = task;
+		DLOG(INFO) << "task_add()";
+		DLOG(INFO) << "Task: x " << task.x << ", y: " << task.y << ", w: " << task.w << ", h" << task.h;
 		CyclesRPCCallFactory::rpc_task_add(rpc_stream, task);
 	}
 
 	void task_wait()
 	{
+		DLOG(INFO) << "task_wait: sending";
 		CyclesRPCCallFactory::rpc_task_wait(rpc_stream);
 
 		TileList the_tiles;
@@ -324,54 +330,61 @@ public:
 		/* todo: run this threaded for connecting to multiple clients */
 		bool done = false;
 		do {
+
 			RenderTile tile;
+
+			DLOG(INFO) << "Seending wait request .. waiting for response";
 
 			CyclesRPCCallBase *request = rpc_stream.wait_request();
 
+
+			DLOG(INFO) << "  GOT response for wait request";
+
 			switch (request->get_call_id())
 			{
-			case CyclesRPCCallBase::acquire_tile_request:
-			{
-				if(the_task.acquire_tile(this, tile)) { /* write return as bool */
-					the_tiles.push_back(tile);
+				case CyclesRPCCallBase::acquire_tile_request:
+				{
+					if(the_task.acquire_tile(this, tile)) { /* write return as bool */
+						the_tiles.push_back(tile);
 
-					CyclesRPCCallFactory::rpc_acquire_tile_response(rpc_stream, request, true, tile);
+						CyclesRPCCallFactory::rpc_acquire_tile_response(rpc_stream, request, true, tile);
+					}
+					else {
+						CyclesRPCCallFactory::rpc_acquire_tile_response(rpc_stream, request, false, tile);
+					}
+					break;
 				}
-				else {
-					CyclesRPCCallFactory::rpc_acquire_tile_response(rpc_stream, request, false, tile);
+				case CyclesRPCCallBase::release_tile_request:
+				{
+					request->read(tile);
+
+					TileList::iterator it = tile_list_find(the_tiles, tile);
+					if(it != the_tiles.end()) {
+						tile.buffers = it->buffers;
+						the_tiles.erase(it);
+					}
+
+					assert(tile.buffers != NULL);
+
+					the_task.release_tile(tile);
+
+					/* FIXME: what's going on here? */
+
+					//RPCSend snd(socket, "release_tile");
+					//snd.write();
+					//lock.unlock();
+
+					break;
 				}
-				break;
-			}
-			case CyclesRPCCallBase::release_tile_request:
-			{
-				request->read(tile);
+				case CyclesRPCCallBase::task_wait_done_request:
+					done = true;
+					break;
 
-				TileList::iterator it = tile_list_find(the_tiles, tile);
-				if(it != the_tiles.end()) {
-					tile.buffers = it->buffers;
-					the_tiles.erase(it);
+				default:
+					break;
 				}
-
-				assert(tile.buffers != NULL);
-
-				the_task.release_tile(tile);
-
-				/* FIXME: what's going on here? */
-
-				//RPCSend snd(socket, "release_tile");
-				//snd.write();
-				//lock.unlock();
-
-				break;
-			}
-			case CyclesRPCCallBase::task_wait_done_request:
-				done = true;
-				break;
-
-			default:
-				break;
-			}
 		} while (!done);
+		DLOG(INFO) << "task_wait: done";
 	}
 
 	void task_cancel()
@@ -429,7 +442,7 @@ public:
 		//rpc_stream.wait_for();
 		/* receive remote function calls */
 		for(;;) {
-			DLOG(INFO) << "pc_stream.wait_request()";
+			DLOG(INFO) << "RPC_stream.wait_request()";
 			CyclesRPCCallBase *request = rpc_stream.wait_request();
 
 			if(request->get_call_id() == CyclesRPCCallBase::stop_request) {
@@ -437,7 +450,7 @@ public:
 				break;
 			}
 			process(*request);
-			DLOG(INFO) << "Done processing()";
+
 		}
 	}
 
@@ -710,7 +723,7 @@ protected:
 		{
 			DeviceTask task;
 
-//			rcv.read(task);
+			rcv.read(task);
 			lock.unlock();
 
 			if(task.buffer)
@@ -740,7 +753,9 @@ protected:
 		case CyclesRPCCallBase::task_wait_request:
 		{
 			lock.unlock();
+			DLOG(INFO) << "Wait request waiting";
 			device->task_wait();
+			DLOG(INFO) << "DONE WAITING";
 
 			lock.lock();
 //			RPCSend snd(socket, "task_wait_done");
@@ -767,6 +782,7 @@ protected:
 
 			raise(SIGTRAP);
 		}
+		DLOG(INFO) << "Done processing() " << CyclesRPCCallBase::get_call_id_name(rcv.get_call_id());
 	}
 
 	bool task_acquire_tile(Device *device, RenderTile& tile)
