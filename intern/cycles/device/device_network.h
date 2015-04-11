@@ -263,7 +263,7 @@ protected:
 		: blob_ptr(NULL)
 		, blob_size(0)
 		, call_id(call_id)
-		, add_point(0)
+		, add_point(min(255,buffer_data->size()))
 		, read_point(0)
 	{
 		// FIX ASAP
@@ -277,13 +277,20 @@ protected:
 
 	inline CyclesRPCCallBase(uint8_t call_id, ByteVector *buffer_data, ByteVector *blob_data)
 		: call_id(call_id)
-		, add_point(0)
+		, add_point(min(255,buffer_data->size()))
 		, read_point(0)
 	{
 		// FIX ASAP
+
+
 		for(int i = 0; i < min(255,buffer_data->size()); i++){
 			buffer[i] = buffer_data->at(i);
 		}
+
+		fprintf(stderr, "CyclesRPCCallBase constructor ->");
+		for(int j = 0; j < buffer_data->size(); j++)
+			fprintf(stderr, "%02X ", buffer[j]);
+		fprintf(stderr, "\n");
 
 		blob_ptr =  (void *)&blob_data[0];
 		blob_size = blob_data->size();
@@ -349,6 +356,12 @@ public:
 		return ResponseInfo(NULL, 0);
 	}
 
+
+	void dump_buffer(){
+		for(int  j = 0; j < buffer_max; j++)
+			fprintf(stderr, "%02X ", buffer[j]);
+		fprintf(stderr, "\n");
+	}
 
 public:
 	static const size_t max_payload = 256;
@@ -544,28 +557,45 @@ public:
 		  * When we can use c++11 we can make sure at compile time */
 		 memset(&result, 0, sizeof(result));
 
-		 typename ToUnsigned<T>::type little_endian_value = 0;
+		 if(size_bytes == 0){
+			 return;
+		 } else if(size_bytes == 1){
+			 memcpy(&result, buffer + read_point, 1);
+			 read_point += 1;
+		 } else if (size_bytes == 2) {
+			 memcpy(&result, buffer + read_point, size_bytes);
+			 DLOG(INFO) << "READ result " << result << "  0x" << std::hex << result;
+			 read_point += 2;
+		 } else if (size_bytes == 4) {
+			 memcpy(&result, buffer + read_point, size_bytes);
+			 DLOG(INFO) << "READ result " << result << "  0x" << std::hex << result;
+			 read_point += 4;
+		 } else  if (size_bytes == 8) {
+			 typename ToUnsigned<int64_t>::type little_endian_value = 0;
 
-		 memcpy(&little_endian_value, buffer + read_point, size_bytes);
+			 memcpy(&little_endian_value, buffer + read_point, size_bytes);
 
-//		 DLOG(INFO) << "READ " << little_endian_value << " size_bytes " << size_bytes;
+			 DLOG(INFO) << "READ " << little_endian_value << " size_bytes " << size_bytes << "dest size: " << sizeof(little_endian_value) << " " << std::hex << little_endian_value;
 
-//		 /* sign extend */ TODO FIX this endian magic...
-//		 if ((type_size & (is_unsigned|is_zero|is_float)) == 0
-//				 && (type_size & size_mask) != sizeof(result)) {
-//			 little_endian_value = sign_extend(little_endian_value, size_bytes);
-//		 }
+			 typename ToUnsigned<T>::type native_endian_value = 0;
+			 native_endian_value = Endian::swap(little_endian_value);
+			 DLOG(INFO) << "READ converted -> " << std::hex  << little_endian_value << " to  " << std::hex << native_endian_value;
 
-//		 typename ToUnsigned<T>::type native_endian_value;
-//		 native_endian_value = Endian::swap(little_endian_value);
 
-//		 /* at this point, any_endian_value is the native endianness */
-//		 memcpy(&result, &native_endian_value, sizeof(result));
 
-		 memcpy(&result, &little_endian_value, sizeof(result));
-		 DLOG(INFO) << "READ result " << result << "  0x" << std::hex << result;
+	//		 /* at this point, any_endian_value is the native endianness */
+			 memcpy(&result, &native_endian_value, sizeof(result));
 
-		 read_point += size_bytes;
+	//		 memcpy(&result, &little_endian_value, sizeof(result));
+			 DLOG(INFO) << "READ result " << result << "  0x" << std::hex << result;
+
+			 read_point += size_bytes;
+
+		 } else {
+			 LOG(FATAL) << "This cannot heppen";
+		}
+
+
 	 }
 
 	 void read(string& result)
@@ -622,7 +652,6 @@ public:
 		add(task.y);
 		add(task.w);
 		add(task.h);
-		DLOG(INFO) << "Task: x " << task.x << ", y: " << task.y << ", w: " << task.w << ", h: " << task.h;
 		add(task.rgba_byte);
 		add(task.rgba_half);
 		add(task.buffer);
@@ -637,6 +666,7 @@ public:
 		add(task.shader_w);
 		add(task.need_finish_queue);
 		add(task.integrator_branched);
+
 	}
 
 	/* deserialize a DeviceTask */
@@ -648,7 +678,6 @@ public:
 		read(task.y);
 		read(task.w);
 		read(task.h);
-		DLOG(INFO) << "Task: x " << task.x << ", y: " << task.y << ", w: " << task.w << ", h: " << task.h;
 		read(task.rgba_byte);
 		read(task.rgba_half);
 		read(task.buffer);
@@ -664,6 +693,7 @@ public:
 		read(task.need_finish_queue);
 		read(task.integrator_branched);
 		task.type = (DeviceTask::Type)type;
+
 	}
 
 	/* serialize a RenderTile */
@@ -1037,7 +1067,7 @@ public:
 
 	RPCCall_task_add(RPCHeader *header,
 			ByteVector *args_buffer, ByteVector *blob_buffer)
-		: CyclesRPCCallBase(CyclesRPCCallBase::CallID(header->id))
+		: CyclesRPCCallBase(CyclesRPCCallBase::CallID(header->id), args_buffer, blob_buffer)
 	{
 	}
 };
@@ -1400,6 +1430,7 @@ class RPCStreamManager
 			assert_uninitalized();
 			done_lock = new thread_mutex;
 			done_cond = new thread_condition_variable;
+			DLOG(INFO) << "Waiter initialized";
 		}
 
 		void set_rcv(CyclesRPCCallBase *r)
@@ -1411,8 +1442,8 @@ class RPCStreamManager
 		{
 			assert_initalized();
 			thread_scoped_lock lock(*done_lock);
-			while (!done)
-				done_cond->wait(lock);
+			//while (!done)
+				//done_cond->wait(lock);
 			return rcv;
 		}
 
@@ -1516,7 +1547,6 @@ class RPCStreamManager
 
 	void post_async_recv_header()
 	{
-		DLOG(INFO) << "REGISTERING CALLBACK FOR RECEIVING A HEADER";
 		recv_header = new RPCHeader();
 		recv_state = receiving_header;
 
@@ -1535,9 +1565,6 @@ class RPCStreamManager
 			post_async_recv_header();
 			return;
 		}
-		DLOG(INFO) << "Receiving header " << CyclesRPCCallBase::get_call_id_name(recv_header->id);
-		DLOG(INFO) << "header.length: " << int(recv_header->length);
-		DLOG(INFO) << "blob.length: " << int(recv_header->blob_len);
 		if( recv_header->length == 0 && recv_header->blob_len == 0) {
 			/* Packet claims to be done */
 			deliver_recv();
@@ -1554,10 +1581,7 @@ class RPCStreamManager
 
 	void post_async_recv_args()
 	{
-		DLOG(INFO) << "REGISTERING CALLBACK FOR RECEIVING ARGS";
 		recv_args_buffer = new ByteVector(recv_header->length, 0);
-
-
 
 		recv_state = receiving_args;
 
@@ -1569,7 +1593,6 @@ class RPCStreamManager
 
 	void handle_recv_args(const boost::system::error_code& error, size_t size)
 	{
-		DLOG(INFO) << "RECEIVED ARGS " << (int)recv_header->length << " "  << recv_args_buffer->size();
 		if (recv_header->blob_len > 0) {
 			post_async_recv_blob();
 		} else {
@@ -1580,7 +1603,6 @@ class RPCStreamManager
 
 	void post_async_recv_blob()
 	{
-		DLOG(INFO) << "REGISTERING CALLBACK FOR RECEIVING BLOB";
 		recv_blob_buffer = new ByteVector(recv_header->blob_len, 0);
 		recv_state = receiving_blob;
 
@@ -1592,8 +1614,6 @@ class RPCStreamManager
 
 	void handle_recv_blob(const boost::system::error_code& error, size_t size)
 	{
-		//LOG_IF(FATAL, (int)recv_header->blob_len != recv_blob_buffer->size() -1 ) << "error";
-		DLOG(INFO) << "RECEIVED BLOB " << (int)recv_header->blob_len << " "  << recv_blob_buffer->size();
 		if(error ==  0){
 			deliver_recv();
 		} else {
@@ -1605,14 +1625,6 @@ class RPCStreamManager
 	{
 		CyclesRPCCallBase *item = CyclesRPCCallFactory::decode_item(
 				recv_header, recv_args_buffer, recv_blob_buffer);
-
-		if(recv_header->length > 0){
-
-			for(int  j = 0; j < recv_header->length; j++)
-				fprintf(stderr, "%02X ", (*recv_args_buffer)[j]);
-			fprintf(stderr, "\n");
-
-		}
 
 		LOG(INFO) << "DECODING ITEM " << CyclesRPCCallBase::get_call_id_name(item->get_call_id()) << " args: " << (int)recv_header->length << " blob: " << (int)recv_header->blob_len;
 		/* inspect header to see if this is a response */
@@ -1693,8 +1705,8 @@ public:
 		DLOG(INFO) << "send_call() " << name;
 		Waiter *w;
 		if(send_item(call, w)) {
-			DLOG(INFO) << "not waiting for response for now" << name;
-			//w->wait();
+			DLOG(INFO) << "waiting for response " << name << " callid -> " << call.get_call_id();
+			w->wait();
 		}
 		return;
 	}

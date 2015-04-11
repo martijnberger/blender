@@ -1,93 +1,4 @@
 
-
-set(CERES_PATH ${CMAKE_SOURCE_DIR}/extern/libmv/)
-
-# make GLog a separate target, so it can be used for gtest as well.
-if(WITH_LIBMV OR WITH_GTESTS OR WITH_CYCLES_LOGGING)
-        # We compile GLog together with GFlag so we don't worry about
-        # adding extra lib to linker.
-        set(GLOG_SRC
-                ${CERES_PATH}third_party/gflags/gflags.cc
-                ${CERES_PATH}third_party/gflags/gflags_completions.cc
-                ${CERES_PATH}third_party/gflags/gflags_reporting.cc
-
-                ${CERES_PATH}third_party/gflags/config.h
-                ${CERES_PATH}third_party/gflags/gflags/gflags_completions.h
-                ${CERES_PATH}third_party/gflags/gflags/gflags_declare.h
-                ${CERES_PATH}third_party/gflags/gflags/gflags.h
-                ${CERES_PATH}third_party/gflags/mutex.h
-                ${CERES_PATH}third_party/gflags/util.h
-        )
-
-        if(WIN32)
-                list(APPEND GLOG_SRC
-                        ${CERES_PATH}third_party/glog/src/logging.cc
-                        ${CERES_PATH}third_party/glog/src/raw_logging.cc
-                        ${CERES_PATH}third_party/glog/src/utilities.cc
-                        ${CERES_PATH}third_party/glog/src/vlog_is_on.cc
-                        ${CERES_PATH}third_party/glog/src/windows/port.cc
-
-                        ${CERES_PATH}third_party/glog/src/utilities.h
-                        ${CERES_PATH}third_party/glog/src/stacktrace_generic-inl.h
-                        ${CERES_PATH}third_party/glog/src/stacktrace.h
-                        ${CERES_PATH}third_party/glog/src/stacktrace_x86_64-inl.h
-                        ${CERES_PATH}third_party/glog/src/base/googleinit.h
-                        ${CERES_PATH}third_party/glog/src/base/mutex.h
-                        ${CERES_PATH}third_party/glog/src/base/commandlineflags.h
-                        ${CERES_PATH}third_party/glog/src/stacktrace_powerpc-inl.h
-                        ${CERES_PATH}third_party/glog/src/stacktrace_x86-inl.h
-                        ${CERES_PATH}third_party/glog/src/config.h
-                        ${CERES_PATH}third_party/glog/src/stacktrace_libunwind-inl.h
-                        ${CERES_PATH}third_party/glog/src/windows/glog/raw_logging.h
-                        ${CERES_PATH}third_party/glog/src/windows/glog/vlog_is_on.h
-                        ${CERES_PATH}third_party/glog/src/windows/glog/logging.h
-                        ${CERES_PATH}third_party/glog/src/windows/glog/log_severity.h
-                        ${CERES_PATH}third_party/glog/src/windows/port.h
-                        ${CERES_PATH}third_party/glog/src/windows/config.h
-                )
-        else()
-                list(APPEND GLOG_SRC
-                        ${CERES_PATH}third_party/glog/src/demangle.cc
-                        ${CERES_PATH}third_party/glog/src/logging.cc
-                        ${CERES_PATH}third_party/glog/src/raw_logging.cc
-                        ${CERES_PATH}third_party/glog/src/signalhandler.cc
-                        ${CERES_PATH}third_party/glog/src/symbolize.cc
-                        ${CERES_PATH}third_party/glog/src/utilities.cc
-                        ${CERES_PATH}third_party/glog/src/vlog_is_on.cc
-
-                        ${CERES_PATH}third_party/glog/src/base/commandlineflags.h
-                        ${CERES_PATH}third_party/glog/src/base/googleinit.h
-                        ${CERES_PATH}third_party/glog/src/base/mutex.h
-                        ${CERES_PATH}third_party/glog/src/config_freebsd.h
-                        ${CERES_PATH}third_party/glog/src/config.h
-                        ${CERES_PATH}third_party/glog/src/config_hurd.h
-                        ${CERES_PATH}third_party/glog/src/config_linux.h
-                        ${CERES_PATH}third_party/glog/src/config_mac.h
-                        ${CERES_PATH}third_party/glog/src/demangle.h
-                        ${CERES_PATH}third_party/glog/src/glog/logging.h
-                        ${CERES_PATH}third_party/glog/src/glog/log_severity.h
-                        ${CERES_PATH}third_party/glog/src/glog/raw_logging.h
-                        ${CERES_PATH}third_party/glog/src/glog/vlog_is_on.h
-                        ${CERES_PATH}third_party/glog/src/stacktrace_generic-inl.h
-                        ${CERES_PATH}third_party/glog/src/stacktrace.h
-                        ${CERES_PATH}third_party/glog/src/stacktrace_libunwind-inl.h
-                        ${CERES_PATH}third_party/glog/src/stacktrace_powerpc-inl.h
-                        ${CERES_PATH}third_party/glog/src/stacktrace_x86_64-inl.h
-                        ${CERES_PATH}third_party/glog/src/stacktrace_x86-inl.h
-                        ${CERES_PATH}third_party/glog/src/symbolize.h
-                        ${CERES_PATH}third_party/glog/src/utilities.h
-                )
-        endif()
-
-        set(GLOG_INC
-                ${CERES_PATH}third_party/gflags
-                ${CERES_PATH}third_party/glog/src
-        )
-
-endif()
-
-
-
 set(INC
 	.
 	../device
@@ -198,7 +109,7 @@ if(WITH_CYCLES_STANDALONE)
 	add_executable(cycles ${SRC})
 	cycles_target_link_libraries(cycles)
 
-    if(UNIX AND NOT APPLE)
+	if(UNIX AND NOT APPLE)
 		set_target_properties(cycles PROPERTIES INSTALL_RPATH $ORIGIN/lib)
 	endif()
 	unset(SRC)
@@ -212,7 +123,7 @@ if(WITH_CYCLES_NETWORK)
 	cycles_target_link_libraries(cycles_server)
 
 	if(UNIX AND NOT APPLE)
-                set_target_properties(cycles_server PROPERTIES INSTALL_RPATH $ORIGIN/lib)
+		set_target_properties(cycles_server PROPERTIES INSTALL_RPATH $ORIGIN/lib)
 	endif()
 	unset(SRC)
 endif()

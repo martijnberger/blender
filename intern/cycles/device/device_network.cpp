@@ -161,6 +161,7 @@ void CyclesRPCCallFactory::rpc_tex_alloc(RPCStreamManager& stream,
 		bool interpolation, bool periodic)
 {
 	RPCCall_tex_alloc call(name, mem, interpolation, periodic);
+
 	stream.send_call(call);
 }
 
@@ -254,28 +255,33 @@ public:
 
 	void mem_alloc(device_memory& mem, MemoryType type)
 	{
+		DLOG(INFO) << "mem_alloc()";
 		mem.device_pointer = ++mem_counter;
 		CyclesRPCCallFactory::rpc_mem_alloc(rpc_stream, mem, type);
 	}
 
 	void mem_copy_to(device_memory& mem)
 	{
+		DLOG(INFO) << "mem_copy_to()";
 		CyclesRPCCallFactory::rpc_mem_copy_to(rpc_stream, mem);
 	}
 
 	void mem_copy_from(device_memory& mem, int y, int w, int h, int elem)
 	{
+		DLOG(INFO) << "mem_copy_from()";
 		CyclesRPCCallFactory::rpc_mem_copy_from(rpc_stream,
 				mem, y, w, h, elem, (void*)mem.data_pointer);
 	}
 
 	void mem_zero(device_memory& mem)
 	{
+		DLOG(INFO) << "mem_zero()";
 		CyclesRPCCallFactory::rpc_mem_zero(rpc_stream, mem);
 	}
 
 	void mem_free(device_memory& mem)
 	{
+		DLOG(INFO) << "mem_free()";
 		if(mem.device_pointer) {
 			CyclesRPCCallFactory::rpc_mem_free(rpc_stream, mem);
 			mem.device_pointer = 0;
@@ -284,6 +290,7 @@ public:
 
 	void const_copy_to(const char *name, void *data, size_t size)
 	{
+		DLOG(INFO) << "const_copy_to( " << name << " )";
 		CyclesRPCCallFactory::rpc_const_copy_to(rpc_stream,
 			std::string(name), data, size);
 	}
@@ -291,7 +298,6 @@ public:
 	void tex_alloc(const char *name, device_memory& mem, bool interpolation, bool periodic)
 	{
 		VLOG(1) << "Texture allocate: " << name << ", " << mem.memory_size() << " bytes.";
-
 		mem.device_pointer = ++mem_counter;
 
 		CyclesRPCCallFactory::rpc_tex_alloc(rpc_stream, name, mem, interpolation, periodic);
@@ -299,6 +305,7 @@ public:
 
 	void tex_free(device_memory& mem)
 	{
+		DLOG(INFO) << "tex_free( " << std::hex << mem.device_pointer << ")";
 		if(mem.device_pointer) {
 			CyclesRPCCallFactory::rpc_tex_free(rpc_stream, mem);
 			mem.device_pointer = 0;
@@ -307,6 +314,7 @@ public:
 
 	bool load_kernels(bool experimental)
 	{
+		DLOG(INFO) << "load_kernels()";
 		bool res = CyclesRPCCallFactory::rpc_load_kernels(rpc_stream, experimental);
 		LOG(INFO) << "load_kernels ->" << res;
 		return res;
@@ -314,15 +322,16 @@ public:
 
 	void task_add(DeviceTask& task)
 	{
-		the_task = task;
 		DLOG(INFO) << "task_add()";
+		the_task = task;
+
 		DLOG(INFO) << "Task: x " << task.x << ", y: " << task.y << ", w: " << task.w << ", h" << task.h;
 		CyclesRPCCallFactory::rpc_task_add(rpc_stream, task);
 	}
 
 	void task_wait()
 	{
-		DLOG(INFO) << "task_wait: sending";
+		DLOG(INFO) << "task_wait()";
 		CyclesRPCCallFactory::rpc_task_wait(rpc_stream);
 
 		TileList the_tiles;
@@ -389,10 +398,12 @@ public:
 
 	void task_cancel()
 	{
+		DLOG(INFO) << "task_cancel()";
 		CyclesRPCCallFactory::rpc_task_cancel(rpc_stream);
 	}
 
 	int get_split_task_count(DeviceTask& task){
+		DLOG(INFO) << "get_split_task_count()";
 		return 0;
 		/*FIX dummy implementation */
 	}
@@ -723,6 +734,8 @@ protected:
 		{
 			DeviceTask task;
 
+			rcv.dump_buffer();
+
 			rcv.read(task);
 			lock.unlock();
 
@@ -790,6 +803,7 @@ protected:
 		//thread_scoped_lock acquire_lock(acquire_mutex);
 
 		bool result = false;
+
 #if 0
 		RPCSend snd(socket, "acquire_tile");
 		snd.write();
@@ -818,12 +832,12 @@ protected:
 
 	void task_update_progress_sample()
 	{
-		; /* skip */
+		DLOG(INFO) << "task_update_progress_sample"; /* skip */
 	}
 
 	void task_update_tile_sample(RenderTile&)
 	{
-		; /* skip */
+		DLOG(INFO) << "task_update_progress_sample"; /* skip */
 	}
 
 	void task_release_tile(RenderTile& tile)
@@ -849,6 +863,8 @@ protected:
 	bool task_get_cancel()
 	{
 		/* FIXME: return true if there was any network error */
+
+
 		return false;
 	}
 
