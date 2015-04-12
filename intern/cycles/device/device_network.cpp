@@ -175,18 +175,30 @@ void CyclesRPCCallFactory::rpc_tex_free(RPCStreamManager& stream,
 bool CyclesRPCCallFactory::rpc_load_kernels_request(RPCStreamManager& stream,
 		bool experimental)
 {
+	bool result = false;
 	RPCCall_load_kernels_request call(experimental);
 
-	stream.send_call(call, true);
-	return true; // Lets speculate on succes, next calls might return error
+	CyclesRPCCallBase* reply;
+
+	Waiter* waiter;
+	stream.send_call(call, waiter);
+
+	waiter->wait(reply);
+
+	reply->read(result);
+
+	DLOG(INFO) << "rpc_load_kernels_request result "  << result;
+
+	return result; // Lets speculate on succes, next calls might return error
 }
 
+template<typename T>
 void CyclesRPCCallFactory::basic_response(RPCStreamManager& stream,
-		uint8_t tag, bool result)
+		uint8_t tag, T result)
 {
-	RPCCall_basic_response call(tag, result);
+	RPCCall_basic_response<T> call(tag, result);
 
-	stream.send_call(call, false);
+	stream.send_call(call);
 }
 
 
@@ -245,7 +257,7 @@ public:
 
 	DeviceTask the_task; /* todo: handle multiple tasks */
 
-	boost::thread *io_service_thread;
+	thread *io_service_thread;
 	RPCStreamManager rpc_stream;
 
 	NetworkDevice(DeviceInfo& info, Stats &stats, const char *address)
@@ -254,15 +266,14 @@ public:
 		, rpc_stream(socket)
 	{
 		rpc_stream.listen();
-		io_service_thread = new boost::thread(boost::bind(&boost::asio::io_service::run, &io_service));
+		io_service_thread = new thread(boost::bind(&boost::asio::io_service::run, &io_service));
 		mem_counter = 0;
 		rpc_stream.connect_to_server(address);
 	}
 
 	~NetworkDevice()
 	{
-		CyclesRPCCallFactory::rpc_stop(rpc_stream);
-		io_service_thread->interrupt();
+		io_service.stop();
 		io_service_thread->join();
 	}
 
@@ -331,7 +342,7 @@ public:
 	{
 		DLOG(INFO) << "load_kernels()";
 		bool res = CyclesRPCCallFactory::rpc_load_kernels_request(rpc_stream, experimental);
-		LOG(INFO) << "load_kernels ->" << res;
+		LOG(INFO) << "load_kernels -> " << res;
 		return res;
 	}
 
@@ -444,13 +455,11 @@ void device_network_info(vector<DeviceInfo>& devices)
 
 class DeviceServer {
 public:
-//	thread_mutex lock;
 
 	DeviceServer(Device *device_, tcp::socket& socket_)
 		: device(device_), rpc_stream(socket_)
 	{
 		io_service = &(socket_.get_io_service());
-//		 thread_scoped_lock l(lock); // make the mutex lock at least once
 	}
 
 	~DeviceServer(){
@@ -464,13 +473,12 @@ public:
 		io_service_thread = new boost::thread(boost::bind(&boost::asio::io_service::run, io_service));
 
 		rpc_stream.listen();
-		//rpc_stream.wait_for();
-		/* receive remote function calls */
 		for(;;) {
 			DLOG(INFO) << "RPC_stream.wait_request()";
 			CyclesRPCCallBase *request = rpc_stream.wait_request();
 
 			if(request->get_call_id() == CyclesRPCCallBase::stop_request) {
+				DLOG(INFO) << "resetting IO service";
 				io_service->reset();
 				break;
 			}
@@ -886,7 +894,8 @@ private:
 	bool stop;
 };
 
-void HandleAccept(tcp::socket *socket, Device* device, bool* done){
+void HandleAccept(tcp::socket *socket, Device* device, bool* done)
+	{
 	DeviceServer server(device, *socket);
 
 
@@ -896,7 +905,6 @@ void HandleAccept(tcp::socket *socket, Device* device, bool* done){
 	server.listen();
 
 	LOG(INFO) << "Disconnected. " << remote_address.c_str();
-
 	*done = true;
 }
 

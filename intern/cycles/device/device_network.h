@@ -39,6 +39,8 @@
 /* some platforms have their endian swap implementation here */
 #include <stdlib.h>
 
+#include <cstdlib>
+
 #include "buffers.h"
 
 #include "util_foreach.h"
@@ -49,10 +51,6 @@
 
 CCL_NAMESPACE_BEGIN
 
-using std::cout;
-using std::cerr;
-using std::hex;
-using std::setw;
 using std::exception;
 
 using boost::asio::ip::tcp;
@@ -228,137 +226,6 @@ struct RPCHeader
 /* cycles-specifics are in here */
 class CyclesRPCCallBase
 {
-protected:
-	static const int buffer_max = 256;
-
-	void *blob_ptr;
-	size_t blob_size;
-
-	uint8_t call_id;
-
-	/* for performance, a statically allocated buffer is used */
-	uint8_t buffer[buffer_max];
-	uint8_t add_point;
-	uint8_t read_point;
-
-	/* masks for type size prefixes */
-	enum SizeFlags {
-		size_mask = 0x0F,
-		is_unsigned = 0x10,
-		is_float = 0x20,
-		is_string = 0x40,
-		is_zero = 0x80
-	};
-
-	inline CyclesRPCCallBase(uint8_t call_id)
-		: blob_ptr(NULL)
-		, blob_size(0)
-		, call_id(call_id)
-		, add_point(0)
-		, read_point(0)
-	{
-	}
-
-	inline CyclesRPCCallBase(uint8_t call_id, ByteVector *buffer_data)
-		: blob_ptr(NULL)
-		, blob_size(0)
-		, call_id(call_id)
-		, add_point(min(255,buffer_data->size()))
-		, read_point(0)
-	{
-		// FIX ASAP
-		for(int i = 0; i < min(255,buffer_data->size()); i++){
-			buffer[i] = buffer_data->at(i);
-		}
-
-
-	}
-
-
-	inline CyclesRPCCallBase(uint8_t call_id, ByteVector *buffer_data, ByteVector *blob_data)
-		: call_id(call_id)
-		, add_point(min(255,buffer_data->size()))
-		, read_point(0)
-	{
-		// FIX ASAP
-
-
-		for(int i = 0; i < min(255,buffer_data->size()); i++){
-			buffer[i] = buffer_data->at(i);
-		}
-
-		fprintf(stderr, "CyclesRPCCallBase constructor ->");
-		for(int j = 0; j < buffer_data->size(); j++)
-			fprintf(stderr, "%02X ", buffer[j]);
-		fprintf(stderr, "\n");
-
-		blob_ptr =  (void *)&blob_data[0];
-		blob_size = blob_data->size();
-
-	}
-
-	template<typename Tcheck, typename Tactual>
-	static inline bool in_range(Tactual a)
-	{
-		return a >= (std::numeric_limits<Tcheck>::min)()
-				&& a <= (std::numeric_limits<Tcheck>::max)();
-	}
-
-	void add_blob(void *mem, size_t size)
-	{
-		assert(blob_ptr == NULL);
-		assert(blob_size == 0);
-		blob_ptr = mem;
-		blob_size = size;
-	}
-
-	void add(const std::string& str)
-	{
-		assert(str.length() < 256);
-		assert(add_point + 1 + 1 + str.length() <= buffer_max);
-		buffer[add_point++] = is_string;
-		buffer[add_point++] = (uint8_t)str.length();
-		memcpy(buffer + add_point, str.c_str(), str.length());
-		add_point += str.length();
-		DLOG(INFO) << "ADD STRING " << str;
-	}
-
-
-
-	/* overload to avoid problem with shifting float
-	 * no code path will call this, it is to make compiler happy */
-	static inline float sign_extend(float a, unsigned)
-	{
-		return a;
-	}
-
-	/* sign extend integer type */
-	template<typename T>
-	static inline T sign_extend(T a, unsigned size)
-	{
-		int shift = 32 - (size * 8);
-		a <<= shift;
-		a >>= shift;
-		return a;
-	}
-
-
-
-public:
-	typedef std::pair<void*,uint32_t> ResponseInfo;
-
-	/* returns true if there is a response */
-	virtual bool send_request() = 0;
-
-	/* receives the response payload this request */
-	virtual ResponseInfo response_info()
-	{
-		return ResponseInfo(NULL, 0);
-	}
-
-public:
-	static const size_t max_payload = 256;
-
 public:
 	/* uniquely identifies a call, responses will have a matching tag */
 	typedef uint8_t CallTag;
@@ -434,6 +301,136 @@ public:
 		}
 	}
 
+	typedef std::pair<void*,uint32_t> ResponseInfo;
+
+	/* returns true if there is a response */
+	virtual bool send_request() = 0;
+
+	/* receives the response payload this request */
+	virtual ResponseInfo response_info()
+	{
+		return ResponseInfo(NULL, 0);
+	}
+
+protected:
+	static const int buffer_max = 256;
+
+	uint8_t call_id;
+	CallTag call_tag;
+
+	/* for performance, a statically allocated buffer is used */
+	uint8_t buffer[buffer_max];
+	uint8_t add_point;
+	uint8_t read_point;
+
+	void *blob_ptr;
+	size_t blob_size;
+
+	/* masks for type size prefixes */
+	enum SizeFlags {
+		size_mask = 0x0F,
+		is_unsigned = 0x10,
+		is_float = 0x20,
+		is_string = 0x40,
+		is_zero = 0x80
+	};
+
+	inline CyclesRPCCallBase(uint8_t call_id)
+		: blob_ptr(NULL)
+		, blob_size(0)
+		, call_id(call_id)
+		, add_point(0)
+		, read_point(0)
+		, call_tag((uint8_t)(std::rand() & 0xff))
+	{
+	}
+
+	inline CyclesRPCCallBase(uint8_t call_id, ByteVector *buffer_data)
+		: blob_ptr(NULL)
+		, blob_size(0)
+		, call_id(call_id)
+		, add_point(min(255,buffer_data->size()))
+		, read_point(0)
+		, call_tag((uint8_t)(std::rand() & 0xff))
+	{
+		// FIX ASAP
+		for(int i = 0; i < min(255,buffer_data->size()); i++){
+			buffer[i] = buffer_data->at(i);
+		}
+		delete buffer_data;
+
+
+	}
+
+
+	inline CyclesRPCCallBase(uint8_t call_id, ByteVector *buffer_data, ByteVector *blob_data)
+		: call_id(call_id)
+		, add_point(min(255,buffer_data->size()))
+		, read_point(0)
+		, call_tag((uint8_t)(std::rand() & 0xff))
+	{
+		// FIX ASAP
+		for(int i = 0; i < min(255,buffer_data->size()); i++){
+			buffer[i] = buffer_data->at(i);
+		}
+		delete buffer_data;
+
+		fprintf(stderr, "CyclesRPCCallBase constructor ->");
+		for(int j = 0; j < buffer_data->size(); j++)
+			fprintf(stderr, "%02X ", buffer[j]);
+		fprintf(stderr, "\n");
+
+		blob_ptr =  (void *)&blob_data[0];
+		blob_size = blob_data->size();
+
+	}
+
+	template<typename Tcheck, typename Tactual>
+	static inline bool in_range(Tactual a)
+	{
+		return a >= (std::numeric_limits<Tcheck>::min)()
+				&& a <= (std::numeric_limits<Tcheck>::max)();
+	}
+
+	void add_blob(void *mem, size_t size)
+	{
+		assert(blob_ptr == NULL);
+		assert(blob_size == 0);
+		blob_ptr = mem;
+		blob_size = size;
+	}
+
+	void add(const std::string& str)
+	{
+		assert(str.length() < 256);
+		assert(add_point + 1 + 1 + str.length() <= buffer_max);
+		buffer[add_point++] = is_string;
+		buffer[add_point++] = (uint8_t)str.length();
+		memcpy(buffer + add_point, str.c_str(), str.length());
+		add_point += str.length();
+		DLOG(INFO) << "ADD STRING " << str;
+	}
+
+	/* overload to avoid problem with shifting float
+	 * no code path will call this, it is to make compiler happy */
+	static inline float sign_extend(float a, unsigned)
+	{
+		return a;
+	}
+
+	/* sign extend integer type */
+	template<typename T>
+	static inline T sign_extend(T a, unsigned size)
+	{
+		int shift = 32 - (size * 8);
+		a <<= shift;
+		a >>= shift;
+		return a;
+	}
+
+public:
+	static const size_t max_payload = 256;
+
 	CallID get_call_id() const
 	{
 		return (CallID)call_id;
@@ -464,10 +461,6 @@ public:
 		return ParameterBuffer(blob_ptr, blob_size);
 	}
 
-protected:
-	CallTag call_tag;
-
-public:
 	 /* used to serialize a new item into buffer[] */
 	 template<typename T>
 	 void add(T a)
@@ -1040,10 +1033,11 @@ public:
 	}
 };
 
+template<typename T>
 class RPCCall_basic_response : public CyclesRPCCallBase
 {
 	/* Response: */
-	bool result;
+	T result;
 
 	bool send_request()
 	{
@@ -1052,7 +1046,7 @@ class RPCCall_basic_response : public CyclesRPCCallBase
 	}
 
 public:
-	RPCCall_basic_response(CallTag tag, bool result)
+	RPCCall_basic_response(CallTag tag, T result)
 		: CyclesRPCCallBase(CyclesRPCCallBase::basic_response)
 		, result(result)
 	{
@@ -1333,8 +1327,9 @@ public:
 	static bool rpc_load_kernels_request(RPCStreamManager& stream,
 			bool experimental);
 
+	template<typename T>
 	static void basic_response(RPCStreamManager& stream, uint8_t tag,
-			bool result);
+			T result);
 
 	static void rpc_task_add(RPCStreamManager& stream,
 			DeviceTask& task);
@@ -1372,33 +1367,28 @@ class Waiter
 {
 public:
 	Waiter()
-//		: call_id(CyclesRPCCallBase::invalid_call),
 		: done(false)
 	{
 		DLOG(INFO) << "Waiter created ";
 	}
 
-//	Waiter(CyclesRPCCallBase::CallID call_id)
-//		: call_id(call_id)
-//		, done(false)
-//	{
-//		DLOG(INFO) << "Waiter created with " << call_id;
-//	}
 
 	Waiter(const Waiter& rhs) = delete;
 
-	void wait()
+	void wait(CyclesRPCCallBase*& r)
 	{
 		DLOG(INFO) << "Wait() " << std::hex << &done_lock;
 		thread_scoped_lock lock(done_lock);
 		while (!done)
 			done_cond.wait(lock);
+			r = reply;
 	}
 
-	void notify()
+	void notify(CyclesRPCCallBase *r)
 	{
 		thread_scoped_lock lock(done_lock);
 		done = true;
+		reply = r;
 		done_cond.notify_one();
 	}
 
@@ -1406,6 +1396,7 @@ protected:
 
 	thread_mutex done_lock;
 	thread_condition_variable done_cond;
+	CyclesRPCCallBase* reply;
 
 //	CyclesRPCCallBase::CallID call_id;
 	bool done;
@@ -1464,7 +1455,7 @@ class RPCStreamManager
 	}
 
 	/* send something from any thread */
-	bool send_item(CyclesRPCCallBase &item, bool wait)
+	bool send_item(CyclesRPCCallBase &item, Waiter*& w)
 	{
 		/* if we need to block this thread until response comes back,
 		 * we need to register for unblock before sending */
@@ -1520,9 +1511,9 @@ class RPCStreamManager
 		lock.unlock();
 		if (expect_reply) {
 			DLOG(INFO) << "EXPECTING a REPLY ";
-			if (wait) {
-				DLOG(INFO) << "waiting for response  callid -> " << item.get_call_id();
-				waiter->wait();
+			DLOG(INFO) << "waiting for response  with tag -> " << (int)item.get_call_tag();
+			if(expect_reply){
+				w = waiter;
 			}
 			return true;
 		}
@@ -1618,14 +1609,14 @@ class RPCStreamManager
 		/* inspect header to see if this is a response */
 		if (recv_header->id & CyclesRPCCallBase::response_flag) {
 			/* it is a response */
-			DLOG(INFO) << "GOT A VALID RESPONSE";
+			DLOG(INFO) << "GOT A VALID RESPONSE  with tag " << (int)recv_header->tag;
 			/* wake up waiter */
 			WaiterMap::iterator waiter = waiter_map.find(recv_header->tag);
 			if ( waiter != waiter_map.end() ){
-				waiter->second->notify();
+				waiter->second->notify(item);
 				waiter_map.erase(waiter);
 			} else {
-				LOG(INFO) << "GOT REPLY but noone expecting it " << (int)recv_header->tag << "  "  << (int) recv_header->id << "DROPPING";
+				LOG(INFO) << "GOT REPLY but noone expecting it " << (int)recv_header->tag << "  "  << (int) recv_header->id << " DROPPING";
 			}
 		}
 		else {
@@ -1690,11 +1681,20 @@ public:
 		return err;
 	}
 
-	void send_call(CyclesRPCCallBase &call, bool wait = true)
+	void send_call(CyclesRPCCallBase &call)
+	{
+		Waiter* w;
+		const char* name = CyclesRPCCallBase::get_call_id_name(call.get_call_id());
+		DLOG(INFO) << "send_call() " << name;
+		send_item(call, w);
+		return;
+	}
+
+	void send_call(CyclesRPCCallBase &call, Waiter*& waiter)
 	{
 		const char* name = CyclesRPCCallBase::get_call_id_name(call.get_call_id());
 		DLOG(INFO) << "send_call() " << name;
-		send_item(call, wait);
+		send_item(call, waiter);
 		return;
 	}
 
