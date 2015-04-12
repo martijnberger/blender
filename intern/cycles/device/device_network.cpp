@@ -21,7 +21,7 @@
 #include "util_foreach.h"
 #include "util_logging.h"
 
-#if defined(WITH_NETWORK)
+//#if defined(WITH_NETWORK)
 
 CCL_NAMESPACE_BEGIN
 
@@ -68,7 +68,7 @@ CyclesRPCCallBase *CyclesRPCCallFactory::decode_item(RPCHeader* header,
 		return new RPCCall_tex_free(header, args_buffer, blob_buffer);
 
 	case CyclesRPCCallBase::load_kernels_request:
-		return new RPCCall_load_kernels(header, args_buffer, blob_buffer);
+		return new RPCCall_load_kernels_request(header, args_buffer, blob_buffer);
 
 	case CyclesRPCCallBase::task_add_request:
 		return new RPCCall_task_add(header, args_buffer, blob_buffer);
@@ -98,8 +98,8 @@ CyclesRPCCallBase *CyclesRPCCallFactory::decode_item(RPCHeader* header,
 	case CyclesRPCCallBase::release_tile_response:
 		return new RPCCall_release_tile_response(header, args_buffer, blob_buffer);
 
-	case CyclesRPCCallBase::load_kernels_response:
-		return new RPCCall_load_kernels(header, args_buffer, blob_buffer);
+	case CyclesRPCCallBase::basic_response:
+		return new RPCCall_load_kernels_request(header, args_buffer, blob_buffer);
 
 	default:
 		assert(!"Should not happen!");
@@ -172,14 +172,23 @@ void CyclesRPCCallFactory::rpc_tex_free(RPCStreamManager& stream,
 	stream.send_call(call);
 }
 
-bool CyclesRPCCallFactory::rpc_load_kernels(RPCStreamManager& stream,
+bool CyclesRPCCallFactory::rpc_load_kernels_request(RPCStreamManager& stream,
 		bool experimental)
 {
-	RPCCall_load_kernels call(experimental);
+	RPCCall_load_kernels_request call(experimental);
 
-	stream.send_call(call);
+	stream.send_call(call, true);
 	return true; // Lets speculate on succes, next calls might return error
 }
+
+void CyclesRPCCallFactory::basic_response(RPCStreamManager& stream,
+		uint8_t tag, bool result)
+{
+	RPCCall_basic_response call(tag, result);
+
+	stream.send_call(call, false);
+}
+
 
 void CyclesRPCCallFactory::rpc_task_add(RPCStreamManager& stream,
 		DeviceTask& task)
@@ -191,6 +200,12 @@ void CyclesRPCCallFactory::rpc_task_add(RPCStreamManager& stream,
 void CyclesRPCCallFactory::rpc_task_wait(RPCStreamManager& stream)
 {
 	RPCCall_task_wait call;
+	stream.send_call(call);
+}
+
+void CyclesRPCCallFactory::rpc_task_wait_done(RPCStreamManager& stream)
+{
+	RPCCall_task_wait_done call;
 	stream.send_call(call);
 }
 
@@ -315,7 +330,7 @@ public:
 	bool load_kernels(bool experimental)
 	{
 		DLOG(INFO) << "load_kernels()";
-		bool res = CyclesRPCCallFactory::rpc_load_kernels(rpc_stream, experimental);
+		bool res = CyclesRPCCallFactory::rpc_load_kernels_request(rpc_stream, experimental);
 		LOG(INFO) << "load_kernels ->" << res;
 		return res;
 	}
@@ -339,7 +354,6 @@ public:
 		/* todo: run this threaded for connecting to multiple clients */
 		bool done = false;
 		do {
-
 			RenderTile tile;
 
 			DLOG(INFO) << "Seending wait request .. waiting for response";
@@ -430,13 +444,13 @@ void device_network_info(vector<DeviceInfo>& devices)
 
 class DeviceServer {
 public:
-	thread_mutex lock;
+//	thread_mutex lock;
 
 	DeviceServer(Device *device_, tcp::socket& socket_)
 		: device(device_), rpc_stream(socket_)
 	{
 		io_service = &(socket_.get_io_service());
-		 thread_scoped_lock l(lock); // make the mutex lock at least once
+//		 thread_scoped_lock l(lock); // make the mutex lock at least once
 	}
 
 	~DeviceServer(){
@@ -545,13 +559,12 @@ protected:
 		case CyclesRPCCallBase::mem_alloc_request:
 		{
 			MemoryType type;
+			int memory_type;
 			network_device_memory mem;
 			device_ptr client_pointer;
 
-//			rcv.read(mem);
-//			rcv.read(type);
-
-			lock.unlock();
+			rcv.read(memory_type);
+			type = (MemoryType)memory_type;
 
 			client_pointer = mem.device_pointer;
 
@@ -575,8 +588,7 @@ protected:
 		{
 			network_device_memory mem;
 
-//			rcv.read(mem);
-			lock.unlock();
+			rcv.read(mem);
 
 			device_ptr client_pointer = mem.device_pointer;
 
@@ -602,11 +614,11 @@ protected:
 			network_device_memory mem;
 			int y, w, h, elem;
 
-//			rcv.read(mem);
-//			rcv.read(y);
-//			rcv.read(w);
-//			rcv.read(h);
-//			rcv.read(elem);
+			rcv.read(mem);
+			rcv.read(y);
+			rcv.read(w);
+			rcv.read(h);
+			rcv.read(elem);
 
 			device_ptr client_pointer = mem.device_pointer;
 			mem.device_pointer = device_ptr_from_client_pointer(client_pointer);
@@ -630,8 +642,7 @@ protected:
 		{
 			network_device_memory mem;
 
-//			rcv.read(mem);
-			lock.unlock();
+			rcv.read(mem);
 
 			device_ptr client_pointer = mem.device_pointer;
 			mem.device_pointer = device_ptr_from_client_pointer(client_pointer);
@@ -648,8 +659,7 @@ protected:
 			network_device_memory mem;
 			device_ptr client_pointer;
 
-//			rcv.read(mem);
-			lock.unlock();
+			rcv.read(mem);
 
 			client_pointer = mem.device_pointer;
 
@@ -670,7 +680,7 @@ protected:
 			rcv.read_blob(&buff, &buff_size);
 
 			LOG_IF(ERROR, (buff_size != size)) << "buff_size != size  " << buff_size << " != " << size;
-			lock.unlock();
+//			lock.unlock();
 			DLOG(INFO) << "const_copy_to( " << name_string << "," << buff << "," << size << ")\n";
 			device->const_copy_to(name_string.c_str(), buff, size);
 			break;
@@ -683,11 +693,10 @@ protected:
 			bool periodic;
 			device_ptr client_pointer;
 
-//			rcv.read(name);
-//			rcv.read(mem);
-//			rcv.read(interpolation);
-//			rcv.read(periodic);
-			lock.unlock();
+			rcv.read(name);
+			rcv.read(mem);
+			rcv.read(interpolation);
+			rcv.read(periodic);
 
 			client_pointer = mem.device_pointer;
 
@@ -711,8 +720,7 @@ protected:
 			network_device_memory mem;
 			device_ptr client_pointer;
 
-//			rcv.read(mem);
-			lock.unlock();
+			rcv.read(mem);
 
 			client_pointer = mem.device_pointer;
 
@@ -728,16 +736,16 @@ protected:
 
 			bool result = device->load_kernels(experimental);
 			// todo if this is not good we should send something
+
+			CyclesRPCCallFactory::basic_response(rpc_stream, rcv.get_call_tag(), result);
+
 			break;
 		}
 		case CyclesRPCCallBase::task_add_request:
 		{
 			DeviceTask task;
 
-			rcv.dump_buffer();
-
 			rcv.read(task);
-			lock.unlock();
 
 			if(task.buffer)
 				task.buffer = device_ptr_from_client_pointer(task.buffer);
@@ -765,29 +773,23 @@ protected:
 		}
 		case CyclesRPCCallBase::task_wait_request:
 		{
-			lock.unlock();
 			DLOG(INFO) << "Wait request waiting";
 			device->task_wait();
 			DLOG(INFO) << "DONE WAITING";
 
-			lock.lock();
-//			RPCSend snd(socket, "task_wait_done");
-//			snd.write();
-			lock.unlock();
+			CyclesRPCCallFactory::rpc_task_wait_done(rpc_stream);
 			break;
 		}
 		case CyclesRPCCallBase::task_cancel_request:
 		{
-			lock.unlock();
 			device->task_cancel();
 			break;
 		}
 		case CyclesRPCCallBase::acquire_tile_request:
 		{
 			RenderTile tile;
-//			rcv.read(tile);
-			lock.unlock();
-			//
+			rcv.read(tile);
+			DLOG(INFO) << "Acquire_tile_request ";
 			break;
 		}
 		default:
@@ -803,7 +805,6 @@ protected:
 		//thread_scoped_lock acquire_lock(acquire_mutex);
 
 		bool result = false;
-
 #if 0
 		RPCSend snd(socket, "acquire_tile");
 		snd.write();
@@ -850,21 +851,19 @@ protected:
 
 		//thread_scoped_lock lock(rpc_lock);
 
-		while(1) {
+		do {
 			CyclesRPCCallBase *request = rpc_stream.wait_request();
 
 			if (request->get_call_id() == CyclesRPCCallBase::release_tile_request)
 				break;
 
 			//process(rcv);
-		}
+		} while( !stop );
 	}
 
 	bool task_get_cancel()
 	{
 		/* FIXME: return true if there was any network error */
-
-
 		return false;
 	}
 
@@ -884,6 +883,7 @@ protected:
 
 private:
 	boost::thread *io_service_thread;
+	bool stop;
 };
 
 void HandleAccept(tcp::socket *socket, Device* device, bool* done){
@@ -932,4 +932,4 @@ void Device::server_run()
 
 CCL_NAMESPACE_END
 
-#endif
+// #endif

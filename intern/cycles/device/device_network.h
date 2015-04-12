@@ -17,7 +17,7 @@
 #ifndef __DEVICE_NETWORK_H__
 #define __DEVICE_NETWORK_H__
 
-#if defined(WITH_NETWORK)
+// #if defined(WITH_NETWORK)
 
 #include <boost/archive/text_iarchive.hpp>
 #include <boost/archive/text_oarchive.hpp>
@@ -356,13 +356,6 @@ public:
 		return ResponseInfo(NULL, 0);
 	}
 
-
-	void dump_buffer(){
-		for(int  j = 0; j < buffer_max; j++)
-			fprintf(stderr, "%02X ", buffer[j]);
-		fprintf(stderr, "\n");
-	}
-
 public:
 	static const size_t max_payload = 256;
 
@@ -399,10 +392,11 @@ public:
 
 		/* responses */
 		response_flag = 0x80,
+		basic_response,
 		mem_alloc_response,
 		acquire_tile_response,
 		release_tile_response,
-		load_kernels_response,
+		task_wait_done,
 
 		last_CallID
 	};
@@ -431,10 +425,11 @@ public:
 		case task_release_tile_request: return "task_release_tile_request";
 
 		/* responses */
+		case basic_response: return "basic_response";
 		case mem_alloc_response: return "mem_alloc_response";
 		case acquire_tile_response: return "acquire_tile_response";
 		case release_tile_response: return "release_tile_response";
-		case load_kernels_response: return "load_kernels_response";
+		case task_wait_done: return "task_wait_done";
 		default: return "Unkown call";
 		}
 	}
@@ -442,6 +437,11 @@ public:
 	CallID get_call_id() const
 	{
 		return (CallID)call_id;
+	}
+
+	CallTag get_call_tag() const
+	{
+		return (CallTag)call_tag;
 	}
 
 	RPCHeader make_call_header() const
@@ -564,36 +564,24 @@ public:
 			 read_point += 1;
 		 } else if (size_bytes == 2) {
 			 memcpy(&result, buffer + read_point, size_bytes);
-			 DLOG(INFO) << "READ result " << result << "  0x" << std::hex << result;
 			 read_point += 2;
 		 } else if (size_bytes == 4) {
 			 memcpy(&result, buffer + read_point, size_bytes);
-			 DLOG(INFO) << "READ result " << result << "  0x" << std::hex << result;
 			 read_point += 4;
 		 } else  if (size_bytes == 8) {
 			 typename ToUnsigned<int64_t>::type little_endian_value = 0;
-
 			 memcpy(&little_endian_value, buffer + read_point, size_bytes);
-
-			 DLOG(INFO) << "READ " << little_endian_value << " size_bytes " << size_bytes << "dest size: " << sizeof(little_endian_value) << " " << std::hex << little_endian_value;
-
 			 typename ToUnsigned<T>::type native_endian_value = 0;
 			 native_endian_value = Endian::swap(little_endian_value);
-			 DLOG(INFO) << "READ converted -> " << std::hex  << little_endian_value << " to  " << std::hex << native_endian_value;
-
-
 
 	//		 /* at this point, any_endian_value is the native endianness */
 			 memcpy(&result, &native_endian_value, sizeof(result));
-
-	//		 memcpy(&result, &little_endian_value, sizeof(result));
-			 DLOG(INFO) << "READ result " << result << "  0x" << std::hex << result;
-
-			 read_point += size_bytes;
+			 read_point += 8;
 
 		 } else {
 			 LOG(FATAL) << "This cannot heppen";
 		}
+		 DLOG(INFO) << "READ result " << result << "  0x" << std::hex << result;
 
 
 	 }
@@ -626,6 +614,19 @@ public:
 
 	/* deserialize a device_memory */
 	void read(device_memory& mem)
+	{
+		int type;
+		read(type);
+		read(mem.data_elements);
+		read(mem.data_size);
+		read(mem.data_width);
+		read(mem.data_height);
+		read(mem.device_pointer);
+		mem.data_type = (DataType)type;
+	}
+
+	/* deserialize a device_memory */
+	void read(network_device_memory& mem)
 	{
 		int type;
 		read(type);
@@ -1014,13 +1015,10 @@ public:
 	}
 };
 
-class RPCCall_load_kernels : public CyclesRPCCallBase
+class RPCCall_load_kernels_request : public CyclesRPCCallBase
 {
 	/* Request: */
 	bool experimental;
-
-	/* Response: */
-	bool result;
 
 	bool send_request()
 	{
@@ -1028,26 +1026,45 @@ class RPCCall_load_kernels : public CyclesRPCCallBase
 		return true;
 	}
 
-	ResponseInfo response_info()
-	{
-		return ResponseInfo(&result, 1);
-	}
-
-
 public:
-	RPCCall_load_kernels(bool experimental)
+	RPCCall_load_kernels_request(bool experimental)
 		: CyclesRPCCallBase(CyclesRPCCallBase::load_kernels_request)
 		, experimental(experimental)
 	{
 	}
 
-	RPCCall_load_kernels(RPCHeader *header,
+	RPCCall_load_kernels_request(RPCHeader *header,
 			ByteVector *args_buffer, ByteVector *blob_buffer)
 		: CyclesRPCCallBase(CyclesRPCCallBase::CallID(header->id))
 	{
 	}
 };
 
+class RPCCall_basic_response : public CyclesRPCCallBase
+{
+	/* Response: */
+	bool result;
+
+	bool send_request()
+	{
+		add(result);
+		return false;
+	}
+
+public:
+	RPCCall_basic_response(CallTag tag, bool result)
+		: CyclesRPCCallBase(CyclesRPCCallBase::basic_response)
+		, result(result)
+	{
+		this->call_tag = tag;
+	}
+
+	RPCCall_basic_response(RPCHeader *header,
+			ByteVector *args_buffer, ByteVector *blob_buffer)
+		: CyclesRPCCallBase(CyclesRPCCallBase::CallID(header->id))
+	{
+	}
+};
 
 class RPCCall_task_add : public CyclesRPCCallBase
 {
@@ -1235,7 +1252,7 @@ public:
  * they will only be copied when first created (until we can use c++11).
  * the specified initialization method will be called on creation (after it is
  * copied.) */
-template<typename T, void (T::*init_method)()>
+template<typename T>
 class LockedPool
 {
 	thread_mutex pool_lock;
@@ -1264,9 +1281,9 @@ public:
 		else {
 			/* need to create a new item
 			 * when we have c++11, use emplace_back here */
-			pool_storage.push_back(T());
+			//pool_storage.push_back(T());
+			pool_storage.emplace_back();
 			result = &pool_storage.back();
-			(result->*init_method)();
 		}
 		return result;
 	}
@@ -1313,13 +1330,18 @@ public:
 	static void rpc_tex_free(RPCStreamManager& stream,
 			device_memory& mem);
 
-	static bool rpc_load_kernels(RPCStreamManager& stream,
+	static bool rpc_load_kernels_request(RPCStreamManager& stream,
 			bool experimental);
+
+	static void basic_response(RPCStreamManager& stream, uint8_t tag,
+			bool result);
 
 	static void rpc_task_add(RPCStreamManager& stream,
 			DeviceTask& task);
 
 	static void rpc_task_wait(RPCStreamManager& stream);
+
+	static void rpc_task_wait_done(RPCStreamManager& stream);
 
 	static void rpc_task_cancel(RPCStreamManager& stream);
 
@@ -1345,6 +1367,50 @@ public:
  *   - it receives calls from the server, invokes them, and if they
  *     return a result, sends the response
  */
+/* object upon which to block when waiting */
+class Waiter
+{
+public:
+	Waiter()
+//		: call_id(CyclesRPCCallBase::invalid_call),
+		: done(false)
+	{
+		DLOG(INFO) << "Waiter created ";
+	}
+
+//	Waiter(CyclesRPCCallBase::CallID call_id)
+//		: call_id(call_id)
+//		, done(false)
+//	{
+//		DLOG(INFO) << "Waiter created with " << call_id;
+//	}
+
+	Waiter(const Waiter& rhs) = delete;
+
+	void wait()
+	{
+		DLOG(INFO) << "Wait() " << std::hex << &done_lock;
+		thread_scoped_lock lock(done_lock);
+		while (!done)
+			done_cond.wait(lock);
+	}
+
+	void notify()
+	{
+		thread_scoped_lock lock(done_lock);
+		done = true;
+		done_cond.notify_one();
+	}
+
+protected:
+
+	thread_mutex done_lock;
+	thread_condition_variable done_cond;
+
+//	CyclesRPCCallBase::CallID call_id;
+	bool done;
+};
+
 class RPCStreamManager
 {
 	//boost::asio::io_service io_service;
@@ -1371,98 +1437,15 @@ class RPCStreamManager
 	ByteVector *recv_args_buffer;
 	ByteVector *recv_blob_buffer;
 
-	/* object upon which to block when waiting */
-	class Waiter
-	{
-		/* mutex can't be copied, so use a pointer and enforce
-		 * that this object is never copied after it is created */
-		thread_mutex *done_lock;
-		thread_condition_variable *done_cond;
 
-		CyclesRPCCallBase::CallID call_id;
-		CyclesRPCCallBase *rcv;
-		bool done;
-
-		void assert_uninitalized()
-		{
-			assert(done_lock == NULL);
-			assert(done_cond == NULL);
-		}
-
-		void assert_initalized()
-		{
-			assert(done_lock != NULL);
-			assert(done_cond != NULL);
-		}
-
-	public:
-		Waiter()
-			: done_lock(NULL)
-			, done_cond(NULL)
-			, call_id(CyclesRPCCallBase::invalid_call)
-			, done(false)
-		{
-		}
-
-		Waiter(CyclesRPCCallBase::CallID call_id)
-			: done_lock(NULL)
-			, done_cond(NULL)
-			, call_id(call_id)
-			, done(false)
-		{
-		}
-
-		Waiter(const Waiter& rhs)
-		{
-			assert_uninitalized();
-			call_id = rhs.call_id;
-			done = rhs.done;
-		}
-
-		~Waiter()
-		{
-			delete done_lock;
-			delete done_cond;
-		}
-
-		void init()
-		{
-			assert_uninitalized();
-			done_lock = new thread_mutex;
-			done_cond = new thread_condition_variable;
-			DLOG(INFO) << "Waiter initialized";
-		}
-
-		void set_rcv(CyclesRPCCallBase *r)
-		{
-			rcv = r;
-		}
-
-		CyclesRPCCallBase* wait()
-		{
-			assert_initalized();
-			thread_scoped_lock lock(*done_lock);
-			//while (!done)
-				//done_cond->wait(lock);
-			return rcv;
-		}
-
-		void notify()
-		{
-			assert_initalized();
-			thread_scoped_lock lock(*done_lock);
-			done = true;
-			done_cond->notify_one();
-		}
-	};
 
 	/* we don't want to be constantly creating and destroying
 	 * mutices and condition variables, so pool them */
-	typedef LockedPool<Waiter,&Waiter::init> WaiterPool;
+	typedef LockedPool<Waiter> WaiterPool;
 	WaiterPool waiter_pool;
 
 	thread_mutex waiter_map_lock;
-	typedef std::map<uint8_t,Waiter*> WaiterMap;
+	typedef std::map<uint32_t,Waiter*> WaiterMap;
 	WaiterMap waiter_map;
 
 	/* queue for incoming packets that aren't responses */
@@ -1470,7 +1453,7 @@ class RPCStreamManager
 
 	/* send implementation */
 
-	Waiter *register_for_unblock(CyclesRPCCallBase::CallTag tag)
+	Waiter *register_for_unblock(uint32_t tag)
 	{
 		Waiter *waiter = waiter_pool.alloc_item();
 
@@ -1481,7 +1464,7 @@ class RPCStreamManager
 	}
 
 	/* send something from any thread */
-	bool send_item(CyclesRPCCallBase &item, Waiter *w)
+	bool send_item(CyclesRPCCallBase &item, bool wait)
 	{
 		/* if we need to block this thread until response comes back,
 		 * we need to register for unblock before sending */
@@ -1489,8 +1472,10 @@ class RPCStreamManager
 		Waiter *waiter = NULL;
 
 		bool expect_reply = item.send_request();
-		if (expect_reply)
-			waiter = register_for_unblock(item.get_call_id());
+		if (expect_reply){
+			waiter = register_for_unblock(item.get_call_tag());
+			DLOG(INFO)	<< "Register waiter on " << (int) item.get_call_tag();
+		}
 
 		boost::system::error_code send_err;
 
@@ -1534,8 +1519,11 @@ class RPCStreamManager
 
 		lock.unlock();
 		if (expect_reply) {
-			DLOG(INFO) << "EXPECTING a REPLY";
-			w = waiter;
+			DLOG(INFO) << "EXPECTING a REPLY ";
+			if (wait) {
+				DLOG(INFO) << "waiting for response  callid -> " << item.get_call_id();
+				waiter->wait();
+			}
 			return true;
 		}
 		else
@@ -1633,9 +1621,12 @@ class RPCStreamManager
 			DLOG(INFO) << "GOT A VALID RESPONSE";
 			/* wake up waiter */
 			WaiterMap::iterator waiter = waiter_map.find(recv_header->tag);
-			waiter->second->set_rcv(item);
-			waiter->second->notify();
-			waiter_map.erase(waiter);
+			if ( waiter != waiter_map.end() ){
+				waiter->second->notify();
+				waiter_map.erase(waiter);
+			} else {
+				LOG(INFO) << "GOT REPLY but noone expecting it " << (int)recv_header->tag << "  "  << (int) recv_header->id << "DROPPING";
+			}
 		}
 		else {
 			/* it is a request */
@@ -1699,15 +1690,11 @@ public:
 		return err;
 	}
 
-	void send_call(CyclesRPCCallBase &call)
+	void send_call(CyclesRPCCallBase &call, bool wait = true)
 	{
 		const char* name = CyclesRPCCallBase::get_call_id_name(call.get_call_id());
 		DLOG(INFO) << "send_call() " << name;
-		Waiter *w;
-		if(send_item(call, w)) {
-			DLOG(INFO) << "waiting for response " << name << " callid -> " << call.get_call_id();
-			w->wait();
-		}
+		send_item(call, wait);
 		return;
 	}
 
@@ -1877,7 +1864,7 @@ private:
 
 CCL_NAMESPACE_END
 
-#endif
+//#endif
 
 #endif /* __DEVICE_NETWORK_H__ */
 
