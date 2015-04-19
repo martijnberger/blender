@@ -88,6 +88,9 @@ CyclesRPCCallBase *CyclesRPCCallFactory::decode_item(RPCHeader* header,
 	case CyclesRPCCallBase::task_wait_done_request:
 		return new RPCCall_task_wait_done(header, args_buffer, blob_buffer);
 
+	case CyclesRPCCallBase::task_acquire_tile_request:
+		return new RPCCall_acquire_tile(header, args_buffer, blob_buffer);
+
 	/* responses */
 	case CyclesRPCCallBase::mem_alloc_response:
 		return new RPCCall_mem_alloc_response(header, args_buffer, blob_buffer);
@@ -99,7 +102,7 @@ CyclesRPCCallBase *CyclesRPCCallFactory::decode_item(RPCHeader* header,
 		return new RPCCall_release_tile_response(header, args_buffer, blob_buffer);
 
 	case CyclesRPCCallBase::basic_response:
-		return new RPCCall_load_kernels_request(header, args_buffer, blob_buffer);
+		return new RPCCall_basic_response(header, args_buffer, blob_buffer);
 
 	default:
 		assert(!"Should not happen!");
@@ -183,7 +186,7 @@ bool CyclesRPCCallFactory::rpc_load_kernels_request(RPCStreamManager& stream,
 	Waiter* waiter;
 	stream.send_call(call, waiter);
 
-	waiter->wait(reply);
+	waiter->wait(&reply);
 
 	reply->read(result);
 
@@ -192,11 +195,10 @@ bool CyclesRPCCallFactory::rpc_load_kernels_request(RPCStreamManager& stream,
 	return result; // Lets speculate on succes, next calls might return error
 }
 
-template<typename T>
 void CyclesRPCCallFactory::basic_response(RPCStreamManager& stream,
-		uint8_t tag, T result)
+		uint8_t tag, bool result)
 {
-	RPCCall_basic_response<T> call(tag, result);
+	RPCCall_basic_response call(tag, result);
 
 	stream.send_call(call);
 }
@@ -224,14 +226,30 @@ void CyclesRPCCallFactory::rpc_task_wait_done(RPCStreamManager& stream)
 void CyclesRPCCallFactory::rpc_task_cancel(RPCStreamManager& stream)
 {
 	RPCCall_task_cancel call;
+
 	stream.send_call(call);
 }
 
+void CyclesRPCCallFactory::rpc_acquire_tile_request(RPCStreamManager &stream)
+{
+	RPCCall_acquire_tile call;
+
+	CyclesRPCCallBase* reply;
+
+	Waiter* waiter;
+
+	stream.send_call(call, waiter);
+
+	waiter->wait(&reply);
+
+}
+
 void CyclesRPCCallFactory::rpc_acquire_tile_response(RPCStreamManager &stream,
-													 CyclesRPCCallBase *request,
+													 uint8_t call_tag,
 													 bool retval, RenderTile &tile)
 {
-
+	RPCCall_acquire_tile_response call(call_tag, retval, tile);
+	stream.send_call(call);
 }
 
 void CyclesRPCCallFactory::rpc_release_tile(RPCStreamManager &stream, RenderTile &tile)
@@ -331,7 +349,7 @@ public:
 
 	void tex_free(device_memory& mem)
 	{
-		DLOG(INFO) << "tex_free( " << std::hex << mem.device_pointer << ")";
+		DLOG(INFO) << "tex_free( " << std::hex << mem.data_elements << " )";
 		if(mem.device_pointer) {
 			CyclesRPCCallFactory::rpc_tex_free(rpc_stream, mem);
 			mem.device_pointer = 0;
@@ -350,8 +368,17 @@ public:
 	{
 		DLOG(INFO) << "task_add()";
 		the_task = task;
+		if( task.type == DeviceTask::FILM_CONVERT ) {
+			DLOG(INFO) << "Task: FILM CONVERT";
+		} else if (task.type == DeviceTask::PATH_TRACE ) {
+			DLOG(INFO) << "Task: PATH_TRACE";
+		} else {
+			DLOG(INFO) << "Task: SHADER";
+		}
 
-		DLOG(INFO) << "Task: x " << task.x << ", y: " << task.y << ", w: " << task.w << ", h" << task.h;
+
+		DLOG(INFO) << "Task: x " << task.x << ", y: " << task.y << ", w: " << task.w << ", h: " << task.h;
+		DLOG(INFO) << "Task: sample " << task.sample << ", num_samples: " << task.num_samples << ", offset: " << task.offset << ", stride: " << task.stride;
 		CyclesRPCCallFactory::rpc_task_add(rpc_stream, task);
 	}
 
@@ -376,15 +403,16 @@ public:
 
 			switch (request->get_call_id())
 			{
-				case CyclesRPCCallBase::acquire_tile_request:
+				case CyclesRPCCallBase::task_acquire_tile_request:
 				{
+					uint8_t response_tag = request->get_call_tag();
 					if(the_task.acquire_tile(this, tile)) { /* write return as bool */
 						the_tiles.push_back(tile);
-
-						CyclesRPCCallFactory::rpc_acquire_tile_response(rpc_stream, request, true, tile);
+						DLOG(INFO) << "Sending back a request_tile_response " <<  (unsigned int) response_tag ;
+						CyclesRPCCallFactory::rpc_acquire_tile_response(rpc_stream, response_tag, true, tile);
 					}
 					else {
-						CyclesRPCCallFactory::rpc_acquire_tile_response(rpc_stream, request, false, tile);
+						CyclesRPCCallFactory::rpc_acquire_tile_response(rpc_stream, response_tag, false, tile);
 					}
 					break;
 				}
@@ -752,8 +780,20 @@ protected:
 		case CyclesRPCCallBase::task_add_request:
 		{
 			DeviceTask task;
-
 			rcv.read(task);
+
+			if( task.type == DeviceTask::FILM_CONVERT ) {
+				DLOG(INFO) << "Task: FILM CONVERT";
+			} else if (task.type == DeviceTask::PATH_TRACE ) {
+				DLOG(INFO) << "Task: PATH_TRACE";
+			} else {
+				DLOG(INFO) << "Task: SHADER";
+			}
+
+
+			DLOG(INFO) << "Task: x " << task.x << ", y: " << task.y << ", w: " << task.w << ", h: " << task.h;
+			DLOG(INFO) << "Task: sample " << task.sample << ", num_samples: " << task.num_samples << ", offset: " << task.offset << ", stride: " << task.stride;
+
 
 			if(task.buffer)
 				task.buffer = device_ptr_from_client_pointer(task.buffer);
@@ -812,7 +852,12 @@ protected:
 	{
 		//thread_scoped_lock acquire_lock(acquire_mutex);
 
+		DLOG(INFO) << "TASK callback task_acquire_tile()";
+
+
 		bool result = false;
+
+		CyclesRPCCallFactory::rpc_acquire_tile_request(rpc_stream);
 #if 0
 		RPCSend snd(socket, "acquire_tile");
 		snd.write();
@@ -841,16 +886,17 @@ protected:
 
 	void task_update_progress_sample()
 	{
-		DLOG(INFO) << "task_update_progress_sample"; /* skip */
+		DLOG(INFO) << "TASK callback task_update_progress_sample"; /* skip */
 	}
 
 	void task_update_tile_sample(RenderTile&)
 	{
-		DLOG(INFO) << "task_update_progress_sample"; /* skip */
+		DLOG(INFO) << "TASK callback task_update_progress_sample"; /* skip */
 	}
 
 	void task_release_tile(RenderTile& tile)
 	{
+		DLOG(INFO) << "TASK callback task_release_tile()";
 		//thread_scoped_lock acquire_lock(acquire_mutex);
 		if(tile.buffer) tile.buffer = ptr_imap[tile.buffer];
 		if(tile.rng_state) tile.rng_state = ptr_imap[tile.rng_state];
@@ -871,6 +917,7 @@ protected:
 
 	bool task_get_cancel()
 	{
+		DLOG(INFO) << "TASK callback task_get_cancel";
 		/* FIXME: return true if there was any network error */
 		return false;
 	}

@@ -359,6 +359,11 @@ protected:
 		}
 		delete buffer_data;
 
+//		fprintf(stderr, "CyclesRPCCallBase constructor ->");
+//		for(int j = 0; j < buffer_data->size(); j++)
+//			fprintf(stderr, "%02X ", buffer[j]);
+//		fprintf(stderr, "\n");
+
 
 	}
 
@@ -375,10 +380,10 @@ protected:
 		}
 		delete buffer_data;
 
-		fprintf(stderr, "CyclesRPCCallBase constructor ->");
-		for(int j = 0; j < buffer_data->size(); j++)
-			fprintf(stderr, "%02X ", buffer[j]);
-		fprintf(stderr, "\n");
+//		fprintf(stderr, "CyclesRPCCallBase constructor ->");
+//		for(int j = 0; j < buffer_data->size(); j++)
+//			fprintf(stderr, "%02X ", buffer[j]);
+//		fprintf(stderr, "\n");
 
 		blob_ptr =  (void *)&blob_data[0];
 		blob_size = blob_data->size();
@@ -476,7 +481,7 @@ public:
 
 		 if (!std::numeric_limits<T>::is_integer) {
 			 /* floating point type */
-			 DLOG(INFO) << "ADD (float) " << a;
+//			 DLOG(INFO) << "ADD (float) " << a;
 			 if (memcmp(&a, "\0\0\0\0\0\0\0\0", sizeof(a)) == 0)
 				 type_size = 0 | is_zero;
 			 else if (sizeof(a) == 4)
@@ -486,7 +491,7 @@ public:
 		 }
 		 else if (std::numeric_limits<T>::is_signed) {
 			 /* signed type */
-			 DLOG(INFO) << "ADD (signed) " << a;
+//			 DLOG(INFO) << "ADD (signed) " << a;
 			 if (a == 0)
 				 type_size = 0 | is_zero;
 			 else if (in_range<int8_t,T>(a))
@@ -502,7 +507,7 @@ public:
 		 }
 		 else {
 			 /* unsigned type */
-			 DLOG(INFO) << "ADD (unsigned) " << a;
+//			 DLOG(INFO) << "ADD (unsigned) " << a;
 			 if (a == 0)
 				 type_size = 0 | is_zero;
 			 else if (in_range<uint8_t,T>(a))
@@ -523,7 +528,7 @@ public:
 		 /* size of type, followed by data */
 		 buffer[add_point++] = type_size;
 		 if ((type_size & is_zero) == 0) {
-			 DLOG(INFO) << "ADDING " << (int)(type_size & size_mask) << " bytes, payload " << std::hex << little_endian_a;
+//			 DLOG(INFO) << "ADDING " << (int)(type_size & size_mask) << " bytes, payload " << std::hex << little_endian_a;
 			 memcpy(buffer + add_point, (char*)&a, type_size & size_mask);
 			 add_point += type_size & size_mask;
 		 }
@@ -572,9 +577,9 @@ public:
 			 read_point += 8;
 
 		 } else {
-			 LOG(FATAL) << "This cannot heppen";
+			 LOG(FATAL) << "This cannot heppen " << std::hex << size_bytes ;
 		}
-		 DLOG(INFO) << "READ result " << result << "  0x" << std::hex << result;
+//		 DLOG(INFO) << "READ result " << result << "  0x" << std::hex << result;
 
 
 	 }
@@ -791,7 +796,7 @@ public:
 
 	RPCCall_mem_alloc(RPCHeader *header,
 			ByteVector *args_buffer, ByteVector *blob_buffer)
-		: CyclesRPCCallBase(CyclesRPCCallBase::CallID(header->id))
+		: CyclesRPCCallBase(CyclesRPCCallBase::CallID(header->id), args_buffer)
 	{
 		int inttype;
 		mem.assign(new network_device_memory, true);
@@ -1033,11 +1038,10 @@ public:
 	}
 };
 
-template<typename T>
 class RPCCall_basic_response : public CyclesRPCCallBase
 {
 	/* Response: */
-	T result;
+	bool result;
 
 	bool send_request()
 	{
@@ -1046,7 +1050,7 @@ class RPCCall_basic_response : public CyclesRPCCallBase
 	}
 
 public:
-	RPCCall_basic_response(CallTag tag, T result)
+	RPCCall_basic_response(CallTag tag, bool result)
 		: CyclesRPCCallBase(CyclesRPCCallBase::basic_response)
 		, result(result)
 	{
@@ -1055,8 +1059,9 @@ public:
 
 	RPCCall_basic_response(RPCHeader *header,
 			ByteVector *args_buffer, ByteVector *blob_buffer)
-		: CyclesRPCCallBase(CyclesRPCCallBase::CallID(header->id))
+		: CyclesRPCCallBase(CyclesRPCCallBase::CallID(header->id), args_buffer)
 	{
+		DLOG(INFO) << "Basic reply: " << std::hex << args_buffer->at(0) << args_buffer->at(1);
 	}
 };
 
@@ -1125,7 +1130,7 @@ class RPCCall_acquire_tile : public CyclesRPCCallBase
 {
 	bool send_request()
 	{
-		return false;
+		return true;
 	}
 
 public:
@@ -1209,9 +1214,12 @@ class RPCCall_acquire_tile_response : public CyclesRPCCallBase
 	}
 
 public:
-	RPCCall_acquire_tile_response()
+	RPCCall_acquire_tile_response(uint8_t tag, bool retval, RenderTile& tile)
 		: CyclesRPCCallBase(acquire_tile_response)
 	{
+		this->call_tag = tag;
+		this->add(retval);
+		this->add(tile);
 	}
 
 	RPCCall_acquire_tile_response(RPCHeader *header,
@@ -1327,9 +1335,8 @@ public:
 	static bool rpc_load_kernels_request(RPCStreamManager& stream,
 			bool experimental);
 
-	template<typename T>
 	static void basic_response(RPCStreamManager& stream, uint8_t tag,
-			T result);
+			bool result);
 
 	static void rpc_task_add(RPCStreamManager& stream,
 			DeviceTask& task);
@@ -1340,7 +1347,9 @@ public:
 
 	static void rpc_task_cancel(RPCStreamManager& stream);
 
-	static void rpc_acquire_tile_response(RPCStreamManager& stream, CyclesRPCCallBase *request,
+	static void rpc_acquire_tile_request(RPCStreamManager& stream);
+
+	static void rpc_acquire_tile_response(RPCStreamManager& stream, uint8_t tag,
 			bool retval, RenderTile& tile);
 
 	static void rpc_release_tile(RPCStreamManager& stream, RenderTile& tile);
@@ -1375,13 +1384,13 @@ public:
 
 	Waiter(const Waiter& rhs) = delete;
 
-	void wait(CyclesRPCCallBase*& r)
+	void wait(CyclesRPCCallBase** r)
 	{
 		DLOG(INFO) << "Wait() " << std::hex << &done_lock;
 		thread_scoped_lock lock(done_lock);
 		while (!done)
 			done_cond.wait(lock);
-			r = reply;
+			*r = reply;
 	}
 
 	void notify(CyclesRPCCallBase *r)
@@ -1506,11 +1515,11 @@ class RPCStreamManager
 
 		if(send_err)
 			DLOG(INFO) << "SEND  ERROR" << send_err.message();
-		DLOG(INFO) << "DONE SENDING " << CyclesRPCCallBase::get_call_id_name(item.get_call_id())  << " to " << socket.remote_endpoint().address();
+//		DLOG(INFO) << "DONE SENDING " << CyclesRPCCallBase::get_call_id_name(item.get_call_id())  << " to " << socket.remote_endpoint().address();
 
 		lock.unlock();
 		if (expect_reply) {
-			DLOG(INFO) << "EXPECTING a REPLY ";
+//			DLOG(INFO) << "EXPECTING a REPLY ";
 			DLOG(INFO) << "waiting for response  with tag -> " << (int)item.get_call_tag();
 			if(expect_reply){
 				w = waiter;
@@ -1685,7 +1694,7 @@ public:
 	{
 		Waiter* w;
 		const char* name = CyclesRPCCallBase::get_call_id_name(call.get_call_id());
-		DLOG(INFO) << "send_call() " << name;
+		DLOG(INFO) << "send_call() " << name << " tag:" << (int)call.get_call_tag();
 		send_item(call, w);
 		return;
 	}
@@ -1693,7 +1702,7 @@ public:
 	void send_call(CyclesRPCCallBase &call, Waiter*& waiter)
 	{
 		const char* name = CyclesRPCCallBase::get_call_id_name(call.get_call_id());
-		DLOG(INFO) << "send_call() " << name;
+		DLOG(INFO) << "send_call() " << name << " tag:" << (int)call.get_call_tag();
 		send_item(call, waiter);
 		return;
 	}
@@ -1711,7 +1720,7 @@ public:
 	{
 		CyclesRPCCallBase *item;
 		recv_queue.pop(item);
-		DLOG(INFO) << "POP " << CyclesRPCCallBase::get_call_id_name(item->get_call_id());
+		DLOG(INFO) << "POP " << CyclesRPCCallBase::get_call_id_name(item->get_call_id()) << " tag " << (int)item->get_call_tag();
 		return item;
 	}
 };
