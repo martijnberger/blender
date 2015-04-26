@@ -88,9 +88,6 @@ CyclesRPCCallBase *CyclesRPCCallFactory::decode_item(RPCHeader* header,
 	case CyclesRPCCallBase::task_wait_done_request:
 		return new RPCCall_task_wait_done(header, args_buffer, blob_buffer);
 
-	case CyclesRPCCallBase::task_acquire_tile_request:
-		return new RPCCall_acquire_tile(header, args_buffer, blob_buffer);
-
 	/* responses */
 	case CyclesRPCCallBase::mem_alloc_response:
 		return new RPCCall_mem_alloc_response(header, args_buffer, blob_buffer);
@@ -384,26 +381,25 @@ public:
 
 	void task_wait()
 	{
+		CyclesRPCCallBase *request;
 		DLOG(INFO) << "task_wait()";
+
 		CyclesRPCCallFactory::rpc_task_wait(rpc_stream);
 
 		TileList the_tiles;
+
+		DLOG(INFO) << "Sending wait request .. waiting for response";
+		request = rpc_stream.wait_request();
+		DLOG(INFO) << "  GOT response for wait request";
 
 		/* todo: run this threaded for connecting to multiple clients */
 		bool done = false;
 		do {
 			RenderTile tile;
 
-			DLOG(INFO) << "Seending wait request .. waiting for response";
-
-			CyclesRPCCallBase *request = rpc_stream.wait_request();
-
-
-			DLOG(INFO) << "  GOT response for wait request";
-
 			switch (request->get_call_id())
 			{
-				case CyclesRPCCallBase::task_acquire_tile_request:
+				case CyclesRPCCallBase::acquire_tile_request:
 				{
 					uint8_t response_tag = request->get_call_tag();
 					if(the_task.acquire_tile(this, tile)) { /* write return as bool */
@@ -445,6 +441,8 @@ public:
 				default:
 					break;
 				}
+			request = rpc_stream.wait_request();
+			DLOG(INFO) << "  GOT response for wait request";
 		} while (!done);
 		DLOG(INFO) << "task_wait: done";
 	}

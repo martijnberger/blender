@@ -254,8 +254,6 @@ public:
 		acquire_tile_request,
 		release_tile_request,
 		task_wait_done_request,
-		task_acquire_tile_request,
-		task_release_tile_request,
 
 		/* responses */
 		response_flag = 0x80,
@@ -288,8 +286,6 @@ public:
 		case acquire_tile_request: return "acquire_tile_request";
 		case release_tile_request: return "release_tile_request";
 		case task_wait_done_request: return "task_wait_done_request";
-		case task_acquire_tile_request: return "task_acquire_tile_request";
-		case task_release_tile_request: return "task_release_tile_request";
 
 		/* responses */
 		case basic_response: return "basic_response";
@@ -601,8 +597,7 @@ public:
 	/* serialize a device_memory */
 	void add(const device_memory& mem)
 	{
-		int type = (int)mem.data_type;
-		add(type);
+		add((int)mem.data_type);
 		add(mem.data_elements);
 		add(mem.data_size);
 		add(mem.data_width);
@@ -782,9 +777,8 @@ public:
 private:
 	bool send_request()
 	{
-		int inttype = (int)type;
+		add((int)type);
 		add(*mem);
-		add(inttype);
 		return false;
 	}
 
@@ -798,11 +792,6 @@ public:
 			ByteVector *args_buffer, ByteVector *blob_buffer)
 		: CyclesRPCCallBase(CyclesRPCCallBase::CallID(header->id), args_buffer)
 	{
-		int inttype;
-		mem.assign(new network_device_memory, true);
-		read(*mem);
-		read(inttype);
-		type = (MemoryType)inttype;
 	}
 };
 
@@ -903,7 +892,7 @@ public:
 
 	RPCCall_mem_zero(RPCHeader *header,
 			ByteVector *args_buffer, ByteVector *blob_buffer)
-		: CyclesRPCCallBase(CyclesRPCCallBase::CallID(header->id))
+		: CyclesRPCCallBase(CyclesRPCCallBase::CallID(header->id), args_buffer, blob_buffer)
 	{
 	}
 };
@@ -926,7 +915,7 @@ public:
 
 	RPCCall_mem_free(RPCHeader *header,
 			ByteVector *args_buffer, ByteVector *blob_buffer)
-		: CyclesRPCCallBase(CyclesRPCCallBase::CallID(header->id))
+		: CyclesRPCCallBase(CyclesRPCCallBase::CallID(header->id), args_buffer, blob_buffer)
 	{
 	}
 };
@@ -985,7 +974,7 @@ public:
 
 	RPCCall_tex_alloc(RPCHeader *header,
 			ByteVector *args_buffer, ByteVector *blob_buffer)
-		: CyclesRPCCallBase(CyclesRPCCallBase::CallID(header->id))
+		: CyclesRPCCallBase(CyclesRPCCallBase::CallID(header->id), args_buffer, blob_buffer)
 	{
 	}
 };
@@ -1008,7 +997,7 @@ public:
 
 	RPCCall_tex_free(RPCHeader *header,
 			ByteVector *args_buffer, ByteVector *blob_buffer)
-		: CyclesRPCCallBase(CyclesRPCCallBase::CallID(header->id))
+		: CyclesRPCCallBase(CyclesRPCCallBase::CallID(header->id), args_buffer, blob_buffer)
 	{
 	}
 };
@@ -1033,7 +1022,7 @@ public:
 
 	RPCCall_load_kernels_request(RPCHeader *header,
 			ByteVector *args_buffer, ByteVector *blob_buffer)
-		: CyclesRPCCallBase(CyclesRPCCallBase::CallID(header->id))
+		: CyclesRPCCallBase(CyclesRPCCallBase::CallID(header->id), args_buffer, blob_buffer)
 	{
 	}
 };
@@ -1135,7 +1124,7 @@ class RPCCall_acquire_tile : public CyclesRPCCallBase
 
 public:
 	RPCCall_acquire_tile()
-		: CyclesRPCCallBase(task_acquire_tile_request)
+		: CyclesRPCCallBase(acquire_tile_request)
 	{
 	}
 
@@ -1155,13 +1144,13 @@ class RPCCall_release_tile : public CyclesRPCCallBase
 
 public:
 	RPCCall_release_tile()
-		: CyclesRPCCallBase(task_release_tile_request)
+		: CyclesRPCCallBase(release_tile_request)
 	{
 	}
 
 	RPCCall_release_tile(RPCHeader *header,
 			ByteVector *args_buffer, ByteVector *blob_buffer)
-		: CyclesRPCCallBase(CyclesRPCCallBase::CallID(header->id))
+		: CyclesRPCCallBase(CyclesRPCCallBase::CallID(header->id), args_buffer, blob_buffer)
 	{
 	}
 };
@@ -1181,7 +1170,7 @@ public:
 
 	RPCCall_task_wait_done(RPCHeader *header,
 			ByteVector *args_buffer, ByteVector *blob_buffer)
-		: CyclesRPCCallBase(CyclesRPCCallBase::CallID(header->id))
+		: CyclesRPCCallBase(CyclesRPCCallBase::CallID(header->id), args_buffer, blob_buffer)
 	{
 	}
 };
@@ -1201,7 +1190,7 @@ public:
 
 	RPCCall_mem_alloc_response(RPCHeader *header,
 			ByteVector *args_buffer, ByteVector *blob_buffer)
-		: CyclesRPCCallBase(CyclesRPCCallBase::CallID(header->id))
+		: CyclesRPCCallBase(CyclesRPCCallBase::CallID(header->id), args_buffer, blob_buffer)
 	{
 	}
 };
@@ -1224,7 +1213,7 @@ public:
 
 	RPCCall_acquire_tile_response(RPCHeader *header,
 			ByteVector *args_buffer, ByteVector *blob_buffer)
-		: CyclesRPCCallBase(CyclesRPCCallBase::CallID(header->id))
+		: CyclesRPCCallBase(CyclesRPCCallBase::CallID(header->id), args_buffer, blob_buffer)
 	{
 	}
 };
@@ -1244,7 +1233,7 @@ public:
 
 	RPCCall_release_tile_response(RPCHeader *header,
 			ByteVector *args_buffer, ByteVector *blob_buffer)
-		: CyclesRPCCallBase(CyclesRPCCallBase::CallID(header->id))
+		: CyclesRPCCallBase(CyclesRPCCallBase::CallID(header->id), args_buffer, blob_buffer)
 	{
 	}
 };
@@ -1538,6 +1527,8 @@ class RPCStreamManager
 		recv_header = new RPCHeader();
 		recv_state = receiving_header;
 
+		DLOG(INFO) << "HEADER CALLBACK posted ";
+
 		boost::asio::async_read(socket,
 				boost::asio::buffer(recv_header, sizeof(recv_header)),
 				boost::bind(&RPCStreamManager::handle_recv_header, this,
@@ -1781,6 +1772,7 @@ public:
 private:
 	void handle_receive_from(const boost::system::error_code& error, size_t size)
 	{
+		DLOG(INFO) << "handle_receive_from()";
 		if(error) {
 			DLOG(INFO) << "Server discovery receive error: " << error.message();
 			return;

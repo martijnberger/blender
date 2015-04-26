@@ -29,6 +29,7 @@
 #include <queue>
 
 #include "util_function.h"
+#include "util_logging.h"
 
 CCL_NAMESPACE_BEGIN
 
@@ -163,6 +164,7 @@ public:
 		thread_scoped_lock lock(queue_lock);
 
 		/* wait for queue to not be empty */
+		DLOG(INFO) << "Waiting for pop";
 		while (queue.empty())
 			queue_not_empty.wait(lock);
 
