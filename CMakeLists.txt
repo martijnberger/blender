@@ -339,6 +339,7 @@ option(WITH_LZMA          "Enable best LZMA compression, (used for pointcache)" 
 if(UNIX AND NOT APPLE)
 	option(WITH_SYSTEM_LZO    "Use the system LZO library" OFF)
 endif()
+option(WITH_LZ4           "Enable LZ4 compression" ON)
 
 # Camera/motion tracking
 option(WITH_LIBMV         "Enable Libmv structure from motion library" ON)
@@ -879,6 +880,10 @@ if(UNIX AND NOT APPLE)
 			message(FATAL_ERROR "Failed finding system LZO version!")
 		endif()
 	endif()
+
+        if(WITH_LZ4)
+                find_package_wrapper(LZ4)
+        endif()
 
 	if(WITH_SYSTEM_EIGEN3)
 		find_package_wrapper(Eigen3)

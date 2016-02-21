@@ -208,6 +208,11 @@ if(WITH_MEM_VALGRIND)
 	add_definitions(-DWITH_MEM_VALGRIND)
 endif()
 
+if(WITH_LZ4)
+        add_definitions(-DWITH_LZ4)
+        list(APPEND INC_SYS ${LZ4_INCLUDE_DIR})
+endif()
+
 if(WIN32)
 	list(APPEND INC
 		../../../intern/utfconv

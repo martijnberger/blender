@@ -111,6 +111,9 @@ void BLI_filelist_entry_datetime_to_string(
 
 FILE  *BLI_fopen(const char *filename, const char *mode) ATTR_WARN_UNUSED_RESULT ATTR_NONNULL();
 void  *BLI_gzopen(const char *filename, const char *mode) ATTR_WARN_UNUSED_RESULT ATTR_NONNULL();
+#ifdef WITH_LZ4
+void  *BLI_lz4open(const char *filename, const char *mode) ATTR_WARN_UNUSED_RESULT ATTR_NONNULL();
+#endif
 int    BLI_open(const char *filename, int oflag, int pmode) ATTR_WARN_UNUSED_RESULT ATTR_NONNULL();
 int    BLI_access(const char *filename, int mode) ATTR_WARN_UNUSED_RESULT ATTR_NONNULL();
 

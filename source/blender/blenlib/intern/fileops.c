@@ -695,6 +695,19 @@ FILE *BLI_fopen(const char *filename, const char *mode)
 	return fopen(filename, mode);
 }
 
+#ifdef WITH_LZ4
+
+#include "lz4.h"
+
+void *BLI_lz4open(const char *filename, const char *mode)
+{
+	BLI_assert(!BLI_path_is_rel(filename));
+
+	return gzopen(filename, mode);
+}
+
+#endif
+
 void *BLI_gzopen(const char *filename, const char *mode)
 {
 	BLI_assert(!BLI_path_is_rel(filename));
